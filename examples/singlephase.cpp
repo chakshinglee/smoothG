@@ -35,6 +35,29 @@
 
 using namespace smoothg;
 
+/** A time-dependent operator for the right-hand side of the ODE. The DG weak
+    form of du/dt = -v.grad(u) is M du/dt = K u + b, where M and K are the mass
+    and advection matrices, and b describes the flow on the boundary. This can
+    be written as a general ODE, du/dt = M^{-1} (K u + b), and this class is
+    used to evaluate the right-hand side. */
+class FE_Evolution : public mfem::TimeDependentOperator
+{
+private:
+   mfem::HypreParMatrix &M, &K;
+   const mfem::Vector &b;
+   mfem::HypreSmoother M_prec;
+   mfem::CGSolver M_solver;
+
+   mutable mfem::Vector z;
+
+public:
+   FE_Evolution(mfem::HypreParMatrix &_M, mfem::HypreParMatrix &_K, const mfem::Vector &_b);
+
+   virtual void Mult(const mfem::Vector &x, mfem::Vector &y) const;
+
+   virtual ~FE_Evolution() { }
+};
+
 void MetisPart(mfem::Array<int>& partitioning,
                mfem::ParFiniteElementSpace& sigmafespace,
                mfem::ParFiniteElementSpace& ufespace,
@@ -221,9 +244,125 @@ int main(int argc, char* argv[])
     auto sol_upscaled = fvupscale.Solve(rhs_fine);
     fvupscale.ShowCoarseSolveInfo();
 
+    mfem::GridFunction flux_gf(&sigmafespace, sol_upscaled.GetBlock(0).GetData());
+    mfem::VectorGridFunctionCoefficient flux_coeff(&flux_gf);
+    mfem::ParBilinearForm advection(&ufespace);
+    advection.AddInteriorFaceIntegrator(
+        new mfem::TransposeIntegrator(new mfem::DGTraceIntegrator(flux_coeff, 1.0, -0.5)));
+    advection.Assemble(0);
+    advection.Finalize(0);
+    mfem::HypreParMatrix *Adv = advection.ParallelAssemble();
+
+    mfem::ParBilinearForm mass(&ufespace);
+    mass.AddDomainIntegrator(new mfem::MassIntegrator);
+    mass.Assemble();
+    mass.Finalize();
+    mfem::HypreParMatrix *M = mass.ParallelAssemble();
+
+    mfem::Vector influx(rhs_u_fine);
+    for (int i = 0; i < influx.Size(); i++)
+    {
+        if (influx[i] < 0.0)
+        {
+            influx[i] = 0.0;
+        }
+    }
+
+    mfem::ParGridFunction saturation(&ufespace);
+    mfem::Vector S = rhs_u_fine;
+    S = 0.0;
+
+    mfem::socketstream sout;
+    if (visualization)
+    {
+       char vishost[] = "localhost";
+       int  visport   = 19916;
+       sout.open(vishost, visport);
+       if (!sout)
+       {
+          if (myid == 0)
+             std::cout << "Unable to connect to GLVis server at "
+                  << vishost << ':' << visport << std::endl;
+          visualization = false;
+          if (myid == 0)
+          {
+             std::cout << "GLVis visualization disabled.\n";
+          }
+       }
+       else
+       {
+          sout << "parallel " << num_procs << " " << myid << "\n";
+          sout.precision(8);
+          sout << "solution\n" << *pmesh << saturation;
+          sout << "window_size 500 800\n";
+          sout << "window_title 'Saturation'\n";
+          sout << "autoscale off\n";
+          sout << "valuerange " << 0.0 << " " << 1.0 << "\n";
+
+          if (pmesh->SpaceDimension() == 2)
+          {
+              sout << "view 0 0\n"; // view from top
+              sout << "keys jl\n";  // turn off perspective and light
+              sout << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
+          }
+          else
+          {
+              sout << "keys ]]]]]]]]]]]]]\n";  // increase size
+          }
+          sout << "keys c\n";         // show colorbar and mesh
+
+          sout << "pause\n";
+          sout << std::flush;
+          if (myid == 0)
+             std::cout << "GLVis visualization paused."
+                  << " Press space (in the GLVis window) to resume it.\n";
+       }
+    }
+
+    double time = 0.0;
+    double total_time = 100;
+    double delta_t = 0.1;
+    int vis_steps = 10;
+
+    mfem::StopWatch chrono;
+    chrono.Start();
+
+    FE_Evolution adv(*M, *Adv, rhs_u_fine);
+    adv.SetTime(time);
+
+    mfem::ForwardEulerSolver ode_solver;
+    ode_solver.Init(adv);
+
+    bool done = false;
+    for (int ti = 0; !done; )
+    {
+       double dt_real = std::min(delta_t, total_time - time);
+       ode_solver.Step(S, time, dt_real);
+       ti++;
+
+       done = (time >= total_time - 1e-8*delta_t);
+
+       if (done || ti % vis_steps == 0)
+       {
+          if (myid == 0)
+          {
+             std::cout << "time step: " << ti << ", time: " << time << std::endl;
+          }
+
+          // 11. Extract the parallel grid function corresponding to the finite
+          //     element approximation U (the local solution on each processor).
+          saturation = S;
+
+          if (visualization)
+          {
+             sout << "parallel " << num_procs << " " << myid << "\n";
+             sout << "solution\n" << *pmesh << saturation << std::flush;
+          }
+       }
+    }
+
     auto sol_fine = fvupscale.SolveFine(rhs_fine);
     fvupscale.ShowFineSolveInfo();
-
 
     auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
 
@@ -232,45 +371,34 @@ int main(int argc, char* argv[])
         ShowErrors(error_info);
     }
 
-    // Visualize the solution
-    if (visualization)
-    {
-        mfem::ParGridFunction field(&ufespace);
-
-        auto Visualize = [&](const mfem::Vector & sol)
-        {
-            char vishost[] = "localhost";
-            int  visport   = 19916;
-
-            mfem::socketstream vis_v;
-            vis_v.open(vishost, visport);
-            vis_v.precision(8);
-
-            field = sol;
-
-            vis_v << "parallel " << pmesh->GetNRanks() << " " << pmesh->GetMyRank() << "\n";
-            vis_v << "solution\n" << *pmesh << field;
-            vis_v << "window_size 500 800\n";
-            vis_v << "window_title 'pressure'\n";
-            vis_v << "autoscale values\n";
-
-            if (nDimensions == 2)
-            {
-                vis_v << "view 0 0\n"; // view from top
-                vis_v << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
-            }
-
-            vis_v << "keys cjl\n";
-
-            MPI_Barrier(comm);
-        };
-
-        Visualize(sol_upscaled.GetBlock(1));
-        Visualize(sol_fine.GetBlock(1));
-    }
-
     return EXIT_SUCCESS;
 }
+
+// Implementation of class FE_Evolution
+FE_Evolution::FE_Evolution(mfem::HypreParMatrix &_M, mfem::HypreParMatrix &_K,
+                           const mfem::Vector &_b)
+   : mfem::TimeDependentOperator(_M.Height()),
+     M(_M), K(_K), b(_b), M_solver(M.GetComm()), z(_M.Height())
+{
+   M_prec.SetType(mfem::HypreSmoother::Jacobi);
+   M_solver.SetPreconditioner(M_prec);
+   M_solver.SetOperator(M);
+
+   M_solver.iterative_mode = false;
+   M_solver.SetRelTol(1e-9);
+   M_solver.SetAbsTol(0.0);
+   M_solver.SetMaxIter(100);
+   M_solver.SetPrintLevel(0);
+}
+
+void FE_Evolution::Mult(const mfem::Vector &x, mfem::Vector &y) const
+{
+   // y = M^{-1} (K x + b)
+   K.Mult(x, z);
+   z += b;
+   M_solver.Mult(z, y);
+}
+
 
 void MetisPart(mfem::Array<int>& partitioning,
                mfem::ParFiniteElementSpace& sigmafespace,

@@ -237,11 +237,17 @@ SPE10Problem::SPE10Problem(const char* permFile, int nDimensions,
     Lx = N[0] * h(0);
     Ly = N[1] * h(1);
     Lz = N[2] * h(2);
-    Hx = coarsening_factor[0] * h(0);
-    Hy = coarsening_factor[1] * h(1);
+//    Hx = coarsening_factor[0] * h(0);
+//    Hy = coarsening_factor[1] * h(1);
+//    Hz = 1.0;
+//    if (nDimensions == 3)
+//        Hz = coarsening_factor[2] * h(2);
+    Hx = h(0);
+    Hy = h(1);
     Hz = 1.0;
     if (nDimensions == 3)
-        Hz = coarsening_factor[2] * h(2);
+        Hz = h(2);
+
     source_coeff_ = new GCoefficient(Lx, Ly, Lz, Hx, Hy, Hz);
 }
 
