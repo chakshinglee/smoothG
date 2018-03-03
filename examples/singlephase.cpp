@@ -196,17 +196,17 @@ int main(int argc, char* argv[])
     rhs_u_fine = q;
 
     // Construct vertex_edge table in mfem::SparseMatrix format
-    mfem::SparseMatrix vertex_edge;
-    if (nDimensions == 2)
-    {
-        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToEdgeTable());
-        vertex_edge.Swap(tmp);
-    }
-    else
-    {
-        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToFaceTable());
-        vertex_edge.Swap(tmp);
-    }
+//    mfem::SparseMatrix vertex_edge;
+//    if (nDimensions == 2)
+//    {
+//        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToEdgeTable());
+//        vertex_edge.Swap(tmp);
+//    }
+//    else
+//    {
+//        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToFaceTable());
+//        vertex_edge.Swap(tmp);
+//    }
 
     // Construct agglomerated topology based on METIS or Cartesion aggloemration
     mfem::Array<int> partitioning;
@@ -223,6 +223,12 @@ int main(int argc, char* argv[])
     const auto& edge_d_td(sigmafespace.Dof_TrueDof_Matrix());
 
     auto edge_boundary_att = GenerateBoundaryAttributeTable(pmesh);
+
+    mfem::ParMixedBilinearForm *bVarf(new mfem::ParMixedBilinearForm(&sigmafespace, &ufespace));
+    bVarf->AddDomainIntegrator(new mfem::VectorFEDivergenceIntegrator);
+    bVarf->Assemble();
+    bVarf->Finalize();
+    mfem::SparseMatrix& vertex_edge = bVarf->SpMat();
 
     // Create Upscaler and Solve
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partitioning, *edge_d_td,
@@ -241,14 +247,24 @@ int main(int argc, char* argv[])
     rhs_fine.GetBlock(0) = 0.0;
     rhs_fine.GetBlock(1) = rhs_u_fine;
 
-    auto sol_upscaled = fvupscale.Solve(rhs_fine);
-    fvupscale.ShowCoarseSolveInfo();
+    auto sol_fine = fvupscale.SolveFine(rhs_fine);
+    fvupscale.ShowFineSolveInfo();
 
-    mfem::GridFunction flux_gf(&sigmafespace, sol_upscaled.GetBlock(0).GetData());
+//    auto sol_upscaled = fvupscale.Solve(rhs_fine);
+//    fvupscale.ShowCoarseSolveInfo();
+
+//    auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
+
+//    if (myid == 0)
+//    {
+//        ShowErrors(error_info);
+//    }
+
+    mfem::GridFunction flux_gf(&sigmafespace, sol_fine.GetBlock(0).GetData());
     mfem::VectorGridFunctionCoefficient flux_coeff(&flux_gf);
     mfem::ParBilinearForm advection(&ufespace);
     advection.AddInteriorFaceIntegrator(
-        new mfem::TransposeIntegrator(new mfem::DGTraceIntegrator(flux_coeff, 1.0, -0.5)));
+        new mfem::DGTraceIntegrator(flux_coeff, 1.0, -0.5));
     advection.Assemble(0);
     advection.Finalize(0);
     mfem::HypreParMatrix *Adv = advection.ParallelAssemble();
@@ -269,7 +285,7 @@ int main(int argc, char* argv[])
     }
 
     mfem::ParGridFunction saturation(&ufespace);
-    mfem::Vector S = rhs_u_fine;
+    mfem::Vector S = influx;
     S = 0.0;
 
     mfem::socketstream sout;
@@ -291,6 +307,7 @@ int main(int argc, char* argv[])
        }
        else
        {
+          saturation = S;
           sout << "parallel " << num_procs << " " << myid << "\n";
           sout.precision(8);
           sout << "solution\n" << *pmesh << saturation;
@@ -311,7 +328,7 @@ int main(int argc, char* argv[])
           }
           sout << "keys c\n";         // show colorbar and mesh
 
-          sout << "pause\n";
+//          sout << "pause\n";
           sout << std::flush;
           if (myid == 0)
              std::cout << "GLVis visualization paused."
@@ -320,14 +337,14 @@ int main(int argc, char* argv[])
     }
 
     double time = 0.0;
-    double total_time = 100;
-    double delta_t = 0.1;
+    double total_time = 1000.0;
+    double delta_t = 1.0;
     int vis_steps = 10;
 
     mfem::StopWatch chrono;
     chrono.Start();
 
-    FE_Evolution adv(*M, *Adv, rhs_u_fine);
+    FE_Evolution adv(*M, *Adv, influx);
     adv.SetTime(time);
 
     mfem::ForwardEulerSolver ode_solver;
@@ -359,16 +376,6 @@ int main(int argc, char* argv[])
              sout << "solution\n" << *pmesh << saturation << std::flush;
           }
        }
-    }
-
-    auto sol_fine = fvupscale.SolveFine(rhs_fine);
-    fvupscale.ShowFineSolveInfo();
-
-    auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
-
-    if (myid == 0)
-    {
-        ShowErrors(error_info);
     }
 
     return EXIT_SUCCESS;
