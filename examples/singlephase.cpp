@@ -66,8 +66,9 @@ void MetisPart(mfem::Array<int>& partitioning,
 void CartPart(mfem::Array<int>& partitioning, std::vector<int>& num_procs_xyz,
               mfem::ParMesh& pmesh, mfem::Array<int>& coarsening_factor);
 
-mfem::SparseMatrix DiscreteAdvection(const mfem::Vector& normal_flux,
-                                     const mfem::SparseMatrix& elem_facet);
+mfem::HypreParMatrix* DiscreteAdvection(const mfem::Vector& normal_flux,
+                                        const mfem::SparseMatrix& elem_facet,
+                                        const mfem::HypreParMatrix& facet_truefacet);
 
 int main(int argc, char* argv[])
 {
@@ -199,17 +200,17 @@ int main(int argc, char* argv[])
     rhs_u_fine = q;
 
     // Construct vertex_edge table in mfem::SparseMatrix format
-//    mfem::SparseMatrix vertex_edge;
-//    if (nDimensions == 2)
-//    {
-//        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToEdgeTable());
-//        vertex_edge.Swap(tmp);
-//    }
-//    else
-//    {
-//        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToFaceTable());
-//        vertex_edge.Swap(tmp);
-//    }
+    mfem::SparseMatrix vertex_edge;
+    if (nDimensions == 2)
+    {
+        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToEdgeTable());
+        vertex_edge.Swap(tmp);
+    }
+    else
+    {
+        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToFaceTable());
+        vertex_edge.Swap(tmp);
+    }
 
     // Construct agglomerated topology based on METIS or Cartesion aggloemration
     mfem::Array<int> partitioning;
@@ -226,12 +227,6 @@ int main(int argc, char* argv[])
     const auto& edge_d_td(sigmafespace.Dof_TrueDof_Matrix());
 
     auto edge_boundary_att = GenerateBoundaryAttributeTable(pmesh);
-
-    mfem::ParMixedBilinearForm *bVarf(new mfem::ParMixedBilinearForm(&sigmafespace, &ufespace));
-    bVarf->AddDomainIntegrator(new mfem::VectorFEDivergenceIntegrator);
-    bVarf->Assemble();
-    bVarf->Finalize();
-    mfem::SparseMatrix& vertex_edge = bVarf->SpMat();
 
     // Create Upscaler and Solve
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partitioning, *edge_d_td,
@@ -263,34 +258,7 @@ int main(int argc, char* argv[])
 //        ShowErrors(error_info);
 //    }
 
-    mfem::GridFunction flux_gf(&sigmafespace, sol_fine.GetBlock(0).GetData());
-    mfem::VectorGridFunctionCoefficient flux_coeff(&flux_gf);
-    mfem::ParBilinearForm advection(&ufespace);
-    advection.AddInteriorFaceIntegrator(
-        new mfem::DGTraceIntegrator(flux_coeff, 1.0, -0.5));
-    advection.Assemble(0);
-    advection.Finalize(0);
-    mfem::HypreParMatrix *Adv_ref = advection.ParallelAssemble();
-
-    mfem::SparseMatrix diag;
-    Adv_ref->GetDiag(diag);
-//    diag.Print();
-
-    mfem::SparseMatrix Adv_diag = DiscreteAdvection(sol_fine.GetBlock(0), vertex_edge);
-//    Adv_diag.Print();
-
-    diag.Add(-1.0, Adv_diag);
-diag.Print();
-    double* data = diag.GetData();
-    double fnorm = 0.;
-    for (int i = 0; i < diag.NumNonZeroElems(); i++)
-        fnorm += (data[i] * data[i]);
-    fnorm = std::sqrt(fnorm);
-
-    std::cout<<"diag diff = "<<fnorm<<"\n";
-
-
-    auto Adv = new mfem::HypreParMatrix(comm, Adv_ref->N(), Adv_ref->RowPart(), &Adv_diag);
+    auto Adv = DiscreteAdvection(sol_fine.GetBlock(0), vertex_edge, *edge_d_td);
 
     mfem::ParBilinearForm mass(&ufespace);
     mass.AddDomainIntegrator(new mfem::MassIntegrator);
@@ -476,35 +444,104 @@ void CartPart(mfem::Array<int>& partitioning, std::vector<int>& num_procs_xyz,
     cart_part.MakeDataOwner();
 }
 
-
-mfem::SparseMatrix DiscreteAdvection(const mfem::Vector& normal_flux,
-                                     const mfem::SparseMatrix& elem_facet)
+mfem::HypreParMatrix* DiscreteAdvection(const mfem::Vector& normal_flux,
+                                        const mfem::SparseMatrix& elem_facet,
+                                        const mfem::HypreParMatrix& facet_truefacet)
 {
-    const int num_elems = elem_facet.Height();
+    MPI_Comm comm = facet_truefacet.GetComm();
+    const int num_elems_diag = elem_facet.Height();
     const int num_facets = elem_facet.Width();
-    mfem::SparseMatrix out(num_elems, num_elems);
 
-    mfem::SparseMatrix facet_elem = smoothg::Transpose(elem_facet);
+    mfem::SparseMatrix f_tf_diag, f_tf_offd;
+    HYPRE_Int * tf_map;
+    facet_truefacet.GetDiag(f_tf_diag);
+    facet_truefacet.GetOffd(f_tf_offd, tf_map);
+
+    mfem::Array<int> elem_starts;
+    GenerateOffsets(comm, num_elems_diag, elem_starts);
+
+    using ParMatPtr = std::unique_ptr<mfem::HypreParMatrix>;
+    ParMatPtr elem_truefacet(facet_truefacet.LeftDiagMult(elem_facet, elem_starts));
+    ParMatPtr truefacet_elem(elem_truefacet->Transpose());
+
+    mfem::SparseMatrix tf_e_diag, tf_e_offd;
+    HYPRE_Int* copy_map;
+    truefacet_elem->GetDiag(tf_e_diag);
+    truefacet_elem->GetOffd(tf_e_offd, copy_map);
+    HYPRE_Int* elem_map = new HYPRE_Int[tf_e_offd.Width()];
+    std::copy_n(copy_map, tf_e_offd.Width(), elem_map);
+
+    mfem::SparseMatrix diag(num_elems_diag, num_elems_diag);
+    mfem::SparseMatrix offd(num_elems_diag, tf_e_offd.Width());
 
     for (int i = 0; i < num_facets; i++)
     {
-        if (facet_elem.RowSize(i) == 2) // assume v.n = 0 on boundary
-        {
-            const int* elem_pair = facet_elem.GetRowColumns(i);
+        double normal_flux_i = normal_flux(i);
 
-            if (normal_flux(i) > 0)
+        if (f_tf_diag.RowSize(i) != 0) // facet is owned by local processor
+        {
+            assert(f_tf_diag.RowSize(i) == 1);
+            int truefacet = f_tf_diag.GetRowColumns(i)[0];
+
+            if (tf_e_offd.RowSize(truefacet) == 1) // facet is shared
             {
-                out.Set(elem_pair[0], elem_pair[1], normal_flux(i));
-                out.Add(elem_pair[1], elem_pair[1], -1.0 * normal_flux(i));
+                assert(tf_e_diag.RowSize(truefacet) == 1);
+                int diag_elem = tf_e_diag.GetRowColumns(truefacet)[0];
+                int offd_elem = tf_e_offd.GetRowColumns(truefacet)[0];
+
+                if (normal_flux_i > 0)
+                {
+                    offd.Set(diag_elem, offd_elem, normal_flux_i);
+                }
+                else
+                {
+                    diag.Add(diag_elem, diag_elem, normal_flux_i);
+                }
             }
-            else
+            else if (tf_e_diag.RowSize(truefacet) == 2) // facet is interior
             {
-                out.Set(elem_pair[1], elem_pair[0], -1.0 * normal_flux(i));
-                out.Add(elem_pair[0], elem_pair[0], normal_flux(i));
+                const int* elem_pair = tf_e_diag.GetRowColumns(truefacet);
+
+                if (normal_flux_i > 0)
+                {
+                    diag.Set(elem_pair[0], elem_pair[1], normal_flux_i);
+                    diag.Add(elem_pair[1], elem_pair[1], -1.0 * normal_flux_i);
+                }
+                else
+                {
+                    diag.Set(elem_pair[1], elem_pair[0], -1.0 * normal_flux_i);
+                    diag.Add(elem_pair[0], elem_pair[0], normal_flux_i);
+                }
+            }
+            else // global boundary
+            {
+                assert(tf_e_diag.RowSize(truefacet) == 1);
+                const int elem0 = tf_e_diag.GetRowColumns(truefacet)[0];
+                if (normal_flux_i < 0)
+                {
+                    diag.Add(elem0, elem0, normal_flux_i);
+                }
             }
         }
+        // else? I think we need to do something when the facet is not owned,
+        // although I dont know how at the moment, and the parallel run seems
+        // match with serial run
     }
-    out.Finalize(0);
+
+    diag.Finalize(0);
+    offd.Finalize(0);
+
+    int num_elems = elem_starts.Last();
+    auto out = new mfem::HypreParMatrix(comm, num_elems, num_elems, elem_starts,
+                                        elem_starts, &diag, &offd, elem_map);
+
+    // Adjust ownership and copy starts arrays
+    out->CopyRowStarts();
+    out->CopyColStarts();
+    out->SetOwnerFlags(3, 3, 1);
+
+    diag.LoseData();
+    offd.LoseData();
 
     return out;
 }
