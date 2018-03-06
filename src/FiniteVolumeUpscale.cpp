@@ -43,20 +43,9 @@ FiniteVolumeUpscale::FiniteVolumeUpscale(MPI_Comm comm,
 
     // Hypre may modify the original vertex_edge, which we seek to avoid
     mfem::SparseMatrix ve_copy(vertex_edge);
-    ve_copy = 1.0;
 
-//    mixed_laplacians_.emplace_back(ve_copy, weight, edge_d_td_,
-//                                   MixedMatrix::DistributeWeight::False);
-
-    auto Mtmp = SparseIdentity(vertex_edge.Width());
-    auto M = make_unique<mfem::SparseMatrix>(Mtmp);
-    for (int i = 0; i < vertex_edge.Width(); i++)
-    {
-        M->Elem(i,i) = 1.0/weight(i);
-    }
-
-    auto D = make_unique<mfem::SparseMatrix>(vertex_edge);
-    mixed_laplacians_.emplace_back(std::move(M), std::move(D), edge_d_td);
+    mixed_laplacians_.emplace_back(ve_copy, weight, edge_d_td_,
+                                   MixedMatrix::DistributeWeight::False);
 
     auto graph_topology = make_unique<GraphTopology>(ve_copy, edge_d_td_, global_partitioning,
                                                      &edge_boundary_att_);

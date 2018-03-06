@@ -66,6 +66,9 @@ void MetisPart(mfem::Array<int>& partitioning,
 void CartPart(mfem::Array<int>& partitioning, std::vector<int>& num_procs_xyz,
               mfem::ParMesh& pmesh, mfem::Array<int>& coarsening_factor);
 
+mfem::SparseMatrix DiscreteAdvection(const mfem::Vector& normal_flux,
+                                     const mfem::SparseMatrix& elem_facet);
+
 int main(int argc, char* argv[])
 {
     int num_procs, myid;
@@ -267,7 +270,27 @@ int main(int argc, char* argv[])
         new mfem::DGTraceIntegrator(flux_coeff, 1.0, -0.5));
     advection.Assemble(0);
     advection.Finalize(0);
-    mfem::HypreParMatrix *Adv = advection.ParallelAssemble();
+    mfem::HypreParMatrix *Adv_ref = advection.ParallelAssemble();
+
+    mfem::SparseMatrix diag;
+    Adv_ref->GetDiag(diag);
+//    diag.Print();
+
+    mfem::SparseMatrix Adv_diag = DiscreteAdvection(sol_fine.GetBlock(0), vertex_edge);
+//    Adv_diag.Print();
+
+    diag.Add(-1.0, Adv_diag);
+diag.Print();
+    double* data = diag.GetData();
+    double fnorm = 0.;
+    for (int i = 0; i < diag.NumNonZeroElems(); i++)
+        fnorm += (data[i] * data[i]);
+    fnorm = std::sqrt(fnorm);
+
+    std::cout<<"diag diff = "<<fnorm<<"\n";
+
+
+    auto Adv = new mfem::HypreParMatrix(comm, Adv_ref->N(), Adv_ref->RowPart(), &Adv_diag);
 
     mfem::ParBilinearForm mass(&ufespace);
     mass.AddDomainIntegrator(new mfem::MassIntegrator);
@@ -363,7 +386,7 @@ int main(int argc, char* argv[])
        {
           if (myid == 0)
           {
-             std::cout << "time step: " << ti << ", time: " << time << std::endl;
+             std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
           }
 
           // 11. Extract the parallel grid function corresponding to the finite
@@ -451,4 +474,37 @@ void CartPart(mfem::Array<int>& partitioning, std::vector<int>& num_procs_xyz,
     partitioning.Append(cart_part);
 
     cart_part.MakeDataOwner();
+}
+
+
+mfem::SparseMatrix DiscreteAdvection(const mfem::Vector& normal_flux,
+                                     const mfem::SparseMatrix& elem_facet)
+{
+    const int num_elems = elem_facet.Height();
+    const int num_facets = elem_facet.Width();
+    mfem::SparseMatrix out(num_elems, num_elems);
+
+    mfem::SparseMatrix facet_elem = smoothg::Transpose(elem_facet);
+
+    for (int i = 0; i < num_facets; i++)
+    {
+        if (facet_elem.RowSize(i) == 2) // assume v.n = 0 on boundary
+        {
+            const int* elem_pair = facet_elem.GetRowColumns(i);
+
+            if (normal_flux(i) > 0)
+            {
+                out.Set(elem_pair[0], elem_pair[1], normal_flux(i));
+                out.Add(elem_pair[1], elem_pair[1], -1.0 * normal_flux(i));
+            }
+            else
+            {
+                out.Set(elem_pair[1], elem_pair[0], -1.0 * normal_flux(i));
+                out.Add(elem_pair[0], elem_pair[0], normal_flux(i));
+            }
+        }
+    }
+    out.Finalize(0);
+
+    return out;
 }
