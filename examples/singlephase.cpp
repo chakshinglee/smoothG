@@ -40,35 +40,25 @@ using namespace smoothg;
     and advection matrices, and b describes the flow on the boundary. This can
     be written as a general ODE, du/dt = M^{-1} (K u + b), and this class is
     used to evaluate the right-hand side. */
-class FE_Evolution : public mfem::TimeDependentOperator
+class FV_Evolution : public mfem::TimeDependentOperator
 {
 private:
-   mfem::HypreParMatrix &M, &K;
-   const mfem::Vector &b;
-   mfem::HypreSmoother M_prec;
-   mfem::CGSolver M_solver;
-
-   mutable mfem::Vector z;
-
+   const mfem::HypreParMatrix& K_;
+   mfem::Vector Minv_;
+   const mfem::Vector& b_;
 public:
-   FE_Evolution(mfem::HypreParMatrix &_M, mfem::HypreParMatrix &_K, const mfem::Vector &_b);
-
+   FV_Evolution(const mfem::SparseMatrix& M, const mfem::HypreParMatrix& K,
+                const mfem::Vector& b);
    virtual void Mult(const mfem::Vector &x, mfem::Vector &y) const;
-
-   virtual ~FE_Evolution() { }
+   virtual ~FV_Evolution() { }
 };
-
-void MetisPart(mfem::Array<int>& partitioning,
-               mfem::ParFiniteElementSpace& sigmafespace,
-               mfem::ParFiniteElementSpace& ufespace,
-               mfem::Array<int>& coarsening_factor);
-
-void CartPart(mfem::Array<int>& partitioning, std::vector<int>& num_procs_xyz,
-              mfem::ParMesh& pmesh, mfem::Array<int>& coarsening_factor);
 
 mfem::HypreParMatrix* DiscreteAdvection(const mfem::Vector& normal_flux,
                                         const mfem::SparseMatrix& elem_facet,
                                         const mfem::HypreParMatrix& facet_truefacet);
+
+void VisSetup(MPI_Comm comm, mfem::socketstream& sout, mfem::ParMesh& pmesh,
+              mfem::ParGridFunction& saturation, bool& visualization);
 
 int main(int argc, char* argv[])
 {
@@ -147,11 +137,7 @@ int main(int argc, char* argv[])
     else
         nbdr = 4;
     mfem::Array<int> ess_zeros(nbdr);
-    mfem::Array<int> nat_one(nbdr);
-    mfem::Array<int> nat_zeros(nbdr);
     ess_zeros = 1;
-    nat_one = 0;
-    nat_zeros = 0;
 
     mfem::Array<int> ess_attr;
     mfem::Vector weight;
@@ -160,15 +146,7 @@ int main(int argc, char* argv[])
     // Setting up finite volume discretization problem
     SPE10Problem spe10problem(permFile, nDimensions, spe10_scale, slice,
                               metis_agglomeration, coarseningFactor);
-
     mfem::ParMesh* pmesh = spe10problem.GetParMesh();
-
-    if (myid == 0)
-    {
-        std::cout << pmesh->GetNEdges() << " fine edges, " <<
-                  pmesh->GetNFaces() << " fine faces, " <<
-                  pmesh->GetNE() << " fine elements\n";
-    }
 
     ess_attr.SetSize(nbdr);
     for (int i(0); i < nbdr; ++i)
@@ -194,23 +172,14 @@ int main(int argc, char* argv[])
     mfem::ParFiniteElementSpace ufespace(pmesh, &ufec);
 
     mfem::LinearForm q(&ufespace);
-    q.AddDomainIntegrator(
-        new mfem::DomainLFIntegrator(*spe10problem.GetForceCoeff()) );
+    q.AddDomainIntegrator(new mfem::DomainLFIntegrator(*spe10problem.GetForceCoeff()));
     q.Assemble();
     rhs_u_fine = q;
 
     // Construct vertex_edge table in mfem::SparseMatrix format
-    mfem::SparseMatrix vertex_edge;
-    if (nDimensions == 2)
-    {
-        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToEdgeTable());
-        vertex_edge.Swap(tmp);
-    }
-    else
-    {
-        mfem::SparseMatrix tmp = TableToSparse(pmesh->ElementToFaceTable());
-        vertex_edge.Swap(tmp);
-    }
+    const mfem::Table& ve_table = (nDimensions == 2) ?
+                pmesh->ElementToEdgeTable() : pmesh->ElementToFaceTable();
+    mfem::SparseMatrix vertex_edge = TableToMatrix(ve_table);
 
     // Construct agglomerated topology based on METIS or Cartesion aggloemration
     mfem::Array<int> partitioning;
@@ -225,7 +194,6 @@ int main(int argc, char* argv[])
     }
 
     const auto& edge_d_td(sigmafespace.Dof_TrueDof_Matrix());
-
     auto edge_boundary_att = GenerateBoundaryAttributeTable(pmesh);
 
     // Create Upscaler and Solve
@@ -258,13 +226,11 @@ int main(int argc, char* argv[])
 //        ShowErrors(error_info);
 //    }
 
-    auto Adv = DiscreteAdvection(sol_fine.GetBlock(0), vertex_edge, *edge_d_td);
+    std::unique_ptr<mfem::HypreParMatrix> Adv(
+                DiscreteAdvection(sol_fine.GetBlock(0), vertex_edge, *edge_d_td));
 
-    mfem::ParBilinearForm mass(&ufespace);
-    mass.AddDomainIntegrator(new mfem::MassIntegrator);
-    mass.Assemble();
-    mass.Finalize();
-    mfem::HypreParMatrix *M = mass.ParallelAssemble();
+    mfem::SparseMatrix M = SparseIdentity(Adv->Height());
+    M *= spe10problem.CellVolume(nDimensions);
 
     mfem::Vector influx(rhs_u_fine);
     for (int i = 0; i < influx.Size(); i++)
@@ -275,57 +241,15 @@ int main(int argc, char* argv[])
         }
     }
 
-    mfem::ParGridFunction saturation(&ufespace);
     mfem::Vector S = influx;
     S = 0.0;
 
+    mfem::ParGridFunction saturation(&ufespace);    
+    saturation = S;
+
     mfem::socketstream sout;
-    if (visualization)
-    {
-       char vishost[] = "localhost";
-       int  visport   = 19916;
-       sout.open(vishost, visport);
-       if (!sout)
-       {
-          if (myid == 0)
-             std::cout << "Unable to connect to GLVis server at "
-                  << vishost << ':' << visport << std::endl;
-          visualization = false;
-          if (myid == 0)
-          {
-             std::cout << "GLVis visualization disabled.\n";
-          }
-       }
-       else
-       {
-          saturation = S;
-          sout << "parallel " << num_procs << " " << myid << "\n";
-          sout.precision(8);
-          sout << "solution\n" << *pmesh << saturation;
-          sout << "window_size 500 800\n";
-          sout << "window_title 'Saturation'\n";
-          sout << "autoscale off\n";
-          sout << "valuerange " << 0.0 << " " << 1.0 << "\n";
+    VisSetup(comm, sout, *pmesh, saturation, visualization);
 
-          if (pmesh->SpaceDimension() == 2)
-          {
-              sout << "view 0 0\n"; // view from top
-              sout << "keys jl\n";  // turn off perspective and light
-              sout << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
-          }
-          else
-          {
-              sout << "keys ]]]]]]]]]]]]]\n";  // increase size
-          }
-          sout << "keys c\n";         // show colorbar and mesh
-
-//          sout << "pause\n";
-          sout << std::flush;
-          if (myid == 0)
-             std::cout << "GLVis visualization paused."
-                  << " Press space (in the GLVis window) to resume it.\n";
-       }
-    }
 
     double time = 0.0;
     double total_time = 1000.0;
@@ -335,7 +259,7 @@ int main(int argc, char* argv[])
     mfem::StopWatch chrono;
     chrono.Start();
 
-    FE_Evolution adv(*M, *Adv, influx);
+    FV_Evolution adv(M, *Adv, influx);
     adv.SetTime(time);
 
     mfem::ForwardEulerSolver ode_solver;
@@ -368,80 +292,32 @@ int main(int argc, char* argv[])
           }
        }
     }
+    if (myid == 0)
+    {
+       std::cout << "Final time " << time << " reached, time stepping finished.\n";
+    }
 
     return EXIT_SUCCESS;
 }
 
 // Implementation of class FE_Evolution
-FE_Evolution::FE_Evolution(mfem::HypreParMatrix &_M, mfem::HypreParMatrix &_K,
-                           const mfem::Vector &_b)
-   : mfem::TimeDependentOperator(_M.Height()),
-     M(_M), K(_K), b(_b), M_solver(M.GetComm()), z(_M.Height())
+FV_Evolution::FV_Evolution(const mfem::SparseMatrix& M, const mfem::HypreParMatrix& K,
+                           const mfem::Vector& b)
+   : mfem::TimeDependentOperator(K.Height()), K_(K), b_(b)
 {
-   M_prec.SetType(mfem::HypreSmoother::Jacobi);
-   M_solver.SetPreconditioner(M_prec);
-   M_solver.SetOperator(M);
-
-   M_solver.iterative_mode = false;
-   M_solver.SetRelTol(1e-9);
-   M_solver.SetAbsTol(0.0);
-   M_solver.SetMaxIter(100);
-   M_solver.SetPrintLevel(0);
+   M.GetDiag(Minv_); // assume M is diagonal
+   for (int i = 0; i < Minv_.Size(); i++)
+   {
+       Minv_(i) = 1.0 / Minv_(i);
+   }
 }
 
-void FE_Evolution::Mult(const mfem::Vector &x, mfem::Vector &y) const
+void FV_Evolution::Mult(const mfem::Vector &x, mfem::Vector &y) const
 {
    // y = M^{-1} (K x + b)
-   K.Mult(x, z);
-   z += b;
-   M_solver.Mult(z, y);
-}
-
-
-void MetisPart(mfem::Array<int>& partitioning,
-               mfem::ParFiniteElementSpace& sigmafespace,
-               mfem::ParFiniteElementSpace& ufespace,
-               mfem::Array<int>& coarsening_factor)
-{
-    mfem::DiscreteLinearOperator DivOp(&sigmafespace, &ufespace);
-    DivOp.AddDomainInterpolator(new mfem::DivergenceInterpolator);
-    DivOp.Assemble();
-    DivOp.Finalize();
-
-    const mfem::SparseMatrix& DivMat = DivOp.SpMat();
-    const mfem::SparseMatrix DivMatT = smoothg::Transpose(DivMat);
-    const mfem::SparseMatrix vertex_vertex = smoothg::Mult(DivMat, DivMatT);
-
-    int metis_coarsening_factor = 1;
-    for (const auto factor : coarsening_factor)
-        metis_coarsening_factor *= factor;
-
-    const int nvertices = vertex_vertex.Height();
-    int num_partitions = std::max(1, nvertices / metis_coarsening_factor);
-
-    Partition(vertex_vertex, partitioning, num_partitions);
-}
-
-void CartPart(mfem::Array<int>& partitioning, std::vector<int>& num_procs_xyz,
-              mfem::ParMesh& pmesh, mfem::Array<int>& coarsening_factor)
-{
-    const int nDimensions = num_procs_xyz.size();
-
-    mfem::Array<int> nxyz(nDimensions);
-    nxyz[0] = 60 / num_procs_xyz[0] / coarsening_factor[0];
-    nxyz[1] = 220 / num_procs_xyz[1] / coarsening_factor[1];
-    if (nDimensions == 3)
-        nxyz[2] = 85 / num_procs_xyz[2] / coarsening_factor[2];
-
-    for (int& i : nxyz)
-    {
-        i = std::max(1, i);
-    }
-
-    mfem::Array<int> cart_part(pmesh.CartesianPartitioning(nxyz.GetData()), pmesh.GetNE());
-    partitioning.Append(cart_part);
-
-    cart_part.MakeDataOwner();
+   K_.Mult(x, y);
+   y += b_;
+   RescaleVector(Minv_, y);
 }
 
 mfem::HypreParMatrix* DiscreteAdvection(const mfem::Vector& normal_flux,
@@ -545,3 +421,45 @@ mfem::HypreParMatrix* DiscreteAdvection(const mfem::Vector& normal_flux,
 
     return out;
 }
+
+void VisSetup(MPI_Comm comm, mfem::socketstream& sout, mfem::ParMesh& pmesh,
+              mfem::ParGridFunction& saturation, bool& visualization)
+{
+   char vishost[] = "localhost";
+   int  visport   = 19916;
+   sout.open(vishost, visport);
+   if (!sout)
+   {
+      if (pmesh.GetNRanks() == 0)
+         std::cout << "Unable to connect to GLVis server at "
+              << vishost << ':' << visport << std::endl;
+      visualization = false;
+      if (pmesh.GetNRanks() == 0)
+      {
+         std::cout << "GLVis visualization disabled.\n";
+      }
+   }
+   else
+   {
+      sout << "parallel " << pmesh.GetNRanks() << " " << pmesh.GetMyRank() << "\n";
+      sout.precision(8);
+      sout << "solution\n" << pmesh << saturation;
+      sout << "window_size 500 800\n";
+      sout << "window_title 'Saturation'\n";
+      sout << "autoscale off\n";
+      sout << "valuerange " << 0.0 << " " << 1.0 << "\n";
+
+      if (pmesh.SpaceDimension() == 2)
+      {
+          sout << "view 0 0\n"; // view from top
+          sout << "keys jl\n";  // turn off perspective and light
+          sout << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
+      }
+      else
+      {
+          sout << "keys ]]]]]]]]]]]]]\n";  // increase size
+      }
+      sout << "keys c\n";         // show colorbar and mesh
+   }
+}
+
