@@ -31,6 +31,9 @@ target_link_libraries(graphupscale smoothg ${TPL_LIBRARIES})
 add_executable(poweriter poweriter.cpp)
 target_link_libraries(poweriter smoothg ${TPL_LIBRARIES})
 
+add_executable(mltopo mltopo.cpp)
+target_link_libraries(mltopo smoothg ${TPL_LIBRARIES})
+
 add_executable(singlephase singlephase.cpp)
 target_link_libraries(singlephase smoothg ${TPL_LIBRARIES})
 
@@ -57,6 +60,8 @@ add_test(graph-hybridization python stest.py graph-hybridization)
 add_test(poweriter python stest.py poweriter)
 add_test(graph-weight python stest.py graph-weight)
 add_test(timestep python stest.py timestep)
+add_test(graphupscale graphupscale)
+add_test(mltopo mltopo --no-visualization)
 
 add_test(pareigenvector1 python stest.py pareigenvector1)
 add_test(pareigenvector4 python stest.py pareigenvector4)
@@ -71,6 +76,8 @@ add_test(parsamplegraph4 python stest.py parsamplegraph4)
 add_test(pargraph-hybridization python stest.py pargraph-hybridization)
 add_test(parpoweriter python stest.py parpoweriter)
 add_test(partimestep python stest.py partimestep)
+add_test(pargraphupscale mpirun -np 2 ./graphupscale)
+add_test(parmltopo mpirun -np 2 ./mltopo --no-visualization)
 
 if (APPLE)
   add_test(fv-metis python stest.py fv-metis-mac)
@@ -90,5 +97,6 @@ add_test(isolate_coarsen python stest.py isolate-coarsen)
 add_test(vgraph-small-usegenerator python stest.py vgraph-small-usegenerator)
 add_test(vgraph-small-usegenerator-hb python stest.py vgraph-small-usegenerator-hb)
 
-# this test takes too long so we are deprecating it, but you should run it once in a while
+# these tests take too long so we are deprecating them, but you should run them once in a while
 # add_test(veigenvector python stest.py veigenvector)
+# add_valgrind_test(vmltopo mltopo)
