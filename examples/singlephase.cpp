@@ -28,7 +28,8 @@
 #include <mpi.h>
 
 #include "mfem.hpp"
-#include "spe10.hpp"
+//#include "spe10.hpp"
+#include "well.hpp"
 
 #include "../src/picojson.h"
 #include "../src/smoothG.hpp"
@@ -110,6 +111,36 @@ int main(int argc, char* argv[])
     bool visualization = false;
     args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                    "--no-visualization", "Enable visualization.");
+    double delta_t = 1.0;
+    args.AddOption(&delta_t, "-dt", "--delta-t",
+                   "Time step.");
+    double total_time = 1000.0;
+    args.AddOption(&total_time, "-time", "--total-time",
+                   "Total time to step.");
+    int vis_step = 0;
+    args.AddOption(&vis_step, "-vs", "--vis-step",
+                   "Step size for visualization.");
+    double vis_range = 0.5;
+    args.AddOption(&vis_range, "-vr", "--vis-range",
+                   "Upper limit for visualization data.");
+    int write_step = 0;
+    args.AddOption(&write_step, "-ws", "--write-step",
+                   "Step size for writing data to file.");
+    int well_height = 5;
+    args.AddOption(&well_height, "-wh", "--well-height",
+                   "Well Height.");
+    double inject_rate = 0.3;
+    args.AddOption(&inject_rate, "-ir", "--inject-rate",
+                   "Injector rate.");
+    double bottom_hole_pressure = 0.0;
+    args.AddOption(&bottom_hole_pressure, "-bhp", "--bottom-hole-pressure",
+                   "Bottom Hole Pressure.");
+    double well_shift = 1.0;
+    args.AddOption(&well_shift, "-wsh", "--well-shift",
+                   "Shift well from corners");
+    int nz = 15;
+        args.AddOption(&nz, "-nz", "--num-z",
+                       "Num of slices in z direction for 3d run.");
     args.Parse();
     if (!args.Good())
     {
@@ -131,73 +162,73 @@ int main(int argc, char* argv[])
     if (nDimensions == 3)
         coarseningFactor[2] = 5;
 
-    int nbdr;
-    if (nDimensions == 3)
-        nbdr = 6;
-    else
-        nbdr = 4;
-    mfem::Array<int> ess_zeros(nbdr);
-    ess_zeros = 1;
-
-    mfem::Array<int> ess_attr;
-    mfem::Vector weight;
-    mfem::Vector rhs_u_fine;
+    const int nbdr = (nDimensions == 3) ? 6 : 4;
+    mfem::Array<int> ess_attr(nbdr);
+    ess_attr = 1;
 
     // Setting up finite volume discretization problem
+    double scaled_inject = SPE10Problem::CellVolume(nDimensions) * inject_rate;
+    printf("Inject: %.8f Scaled Inject: %.8f\n", inject_rate, scaled_inject);
     SPE10Problem spe10problem(permFile, nDimensions, spe10_scale, slice,
-                              metis_agglomeration, coarseningFactor);
+                              nz, well_height, scaled_inject, bottom_hole_pressure, well_shift);
+
     mfem::ParMesh* pmesh = spe10problem.GetParMesh();
-
-    ess_attr.SetSize(nbdr);
-    for (int i(0); i < nbdr; ++i)
-        ess_attr[i] = ess_zeros[i];
-
-    // Construct "finite volume mass" matrix using mfem instead of parelag
-    mfem::RT_FECollection sigmafec(0, nDimensions);
-    mfem::ParFiniteElementSpace sigmafespace(pmesh, &sigmafec);
-
-    mfem::ParBilinearForm a(&sigmafespace);
-    a.AddDomainIntegrator(
-        new FiniteVolumeMassIntegrator(*spe10problem.GetKInv()) );
-    a.Assemble();
-    a.Finalize();
-    a.SpMat().GetDiag(weight);
-
-    for (int i = 0; i < weight.Size(); ++i)
-    {
-        weight[i] = 1.0 / weight[i];
-    }
-
-    mfem::L2_FECollection ufec(0, nDimensions);
-    mfem::ParFiniteElementSpace ufespace(pmesh, &ufec);
-
-    mfem::LinearForm q(&ufespace);
-    q.AddDomainIntegrator(new mfem::DomainLFIntegrator(*spe10problem.GetForceCoeff()));
-    q.Assemble();
-    rhs_u_fine = q;
-
-    // Construct vertex_edge table in mfem::SparseMatrix format
-    const mfem::Table& ve_table = (nDimensions == 2) ?
-                pmesh->ElementToEdgeTable() : pmesh->ElementToFaceTable();
-    mfem::SparseMatrix vertex_edge = TableToMatrix(ve_table);
-
-    // Construct agglomerated topology based on METIS or Cartesion aggloemration
-    mfem::Array<int> partitioning;
-    if (metis_agglomeration)
-    {
-        MetisPart(partitioning, sigmafespace, ufespace, coarseningFactor);
-    }
-    else
-    {
-        auto num_procs_xyz = spe10problem.GetNumProcsXYZ();
-        CartPart(partitioning, num_procs_xyz, *pmesh, coarseningFactor);
-    }
-
-    const auto& edge_d_td(sigmafespace.Dof_TrueDof_Matrix());
+    auto& vertex_edge = spe10problem.GetVertexEdge();
+    auto edge_d_td = spe10problem.GetEdgeToTrueEdge();
+    auto& weight = spe10problem.GetWeight();
+    auto& rhs_u_fine = spe10problem.GetVertexRHS();
+    auto& well_list = spe10problem.GetWells();
     auto edge_boundary_att = GenerateBoundaryAttributeTable(pmesh);
 
+    int num_injector = 0;
+    for (auto& well : well_list)
+    {
+        if (well.GetType() == WellType::Injector)
+            num_injector++;
+    }
+
+    mfem::Array<int> well_vertices;
+    int num_well_cells = 0;
+    for (auto& well : well_list)
+    {
+        num_well_cells += well.GetNumberOfCells();
+    }
+
+    {
+        auto edge_vertex = smoothg::Transpose(vertex_edge);
+
+        mfem::Array<int> vertices;
+        for (int i = edge_vertex.Height() - num_well_cells; i < edge_vertex.Height(); ++i)
+        {
+            GetTableRow(edge_vertex, i, vertices);
+
+            well_vertices.Append(vertices);
+        }
+    }
+
+    std::vector<int> wells(num_procs, 0);
+    int my_wells = well_list.size();
+    MPI_Gather(&my_wells, 1, MPI::INT, wells.data(), 1, MPI::INT, 0, comm);
+
+    if (myid == 0)
+    {
+        for (int i = 0; i < num_procs; ++i)
+        {
+            std::cout << "Proc: " << i << " Wells: " << wells[i] << "\n";
+        }
+    }
+
+    int metis_coarsening_factor = 1;
+    for (int d = 0; d < nDimensions; d++)
+        metis_coarsening_factor *= coarseningFactor[d];
+    int nparts = std::max(vertex_edge.Height() / metis_coarsening_factor, 1);
+
+    bool adaptive_part = false;
+    mfem::Array<int> partition;
+    PartitionVerticesByMetis(vertex_edge, well_vertices, nparts, partition, adaptive_part);
+
     // Create Upscaler and Solve
-    FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partitioning, *edge_d_td,
+    FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partition, *edge_d_td,
                                   edge_boundary_att, ess_attr, spect_tol, max_evects,
                                   dual_target, scaled_dual, energy_dual, hybridization);
 
@@ -252,8 +283,6 @@ int main(int argc, char* argv[])
 
 
     double time = 0.0;
-    double total_time = 1000.0;
-    double delta_t = 1.0;
     int vis_steps = 10;
 
     mfem::StopWatch chrono;
