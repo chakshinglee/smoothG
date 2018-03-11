@@ -36,9 +36,9 @@
 
 using namespace smoothg;
 
-/** A time-dependent operator for the right-hand side of the ODE. The DG weak
-    form of du/dt = -v.grad(u) is M du/dt = K u + b, where M and K are the mass
-    and advection matrices, and b describes the flow on the boundary. This can
+/** A time-dependent operator for the right-hand side of the ODE. The semi-discrete
+    equation of du/dt = b - v.grad(u) is M du/dt = b - K u, where M and K are
+    the mass and advection matrices, and b describes the influx source. This can
     be written as a general ODE, du/dt = M^{-1} (K u + b), and this class is
     used to evaluate the right-hand side. */
 class FV_Evolution : public mfem::TimeDependentOperator
@@ -111,7 +111,7 @@ int main(int argc, char* argv[])
     bool visualization = false;
     args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                    "--no-visualization", "Enable visualization.");
-    double delta_t = 0.1;
+    double delta_t = 1.0;
     args.AddOption(&delta_t, "-dt", "--delta-t",
                    "Time step.");
     double total_time = 1000.0;
@@ -129,7 +129,7 @@ int main(int argc, char* argv[])
     int well_height = 1;
     args.AddOption(&well_height, "-wh", "--well-height",
                    "Well Height.");
-    double inject_rate = 1.0;
+    double inject_rate = 0.3;
     args.AddOption(&inject_rate, "-ir", "--inject-rate",
                    "Injector rate.");
     double bottom_hole_pressure = 1.0;
@@ -265,10 +265,12 @@ int main(int argc, char* argv[])
     mfem::SparseMatrix M = SparseIdentity(Adv->Height());
     M *= spe10problem.CellVolume(nDimensions);
 
+    mfem::Vector influx(rhs_u_fine);
+    influx *= -1.0;
     mfem::Vector S = rhs_u_fine;
     S = 0.0;
 
-    mfem::ParGridFunction saturation(spe10problem.GetVertexFES(), sol_fine.GetBlock(1).GetData());
+    mfem::ParGridFunction saturation(spe10problem.GetVertexFES(), S.GetData());
     mfem::socketstream sout;
     if (visualization)
     {
@@ -281,7 +283,7 @@ int main(int argc, char* argv[])
     mfem::StopWatch chrono;
     chrono.Start();
 
-    FV_Evolution adv(M, *Adv, rhs_u_fine);
+    FV_Evolution adv(M, *Adv, influx);
     adv.SetTime(time);
 
     mfem::ForwardEulerSolver ode_solver;
@@ -336,9 +338,9 @@ FV_Evolution::FV_Evolution(const mfem::SparseMatrix& M, const mfem::HypreParMatr
 
 void FV_Evolution::Mult(const mfem::Vector &x, mfem::Vector &y) const
 {
-   // y = M^{-1} (K x + b)
-   K_.Mult(x, y);
-   y += b_;
+   // y = M^{-1} (b - K x)
+   y = b_;
+   K_.Mult(-1.0, x, 1.0, y);
    RescaleVector(Minv_, y);
 }
 
@@ -389,11 +391,11 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
 
                 if (normal_flux_i > 0)
                 {
-                    offd.Set(diag_elem, offd_elem, normal_flux_i);
+                    offd.Set(diag_elem, offd_elem, -1.0 * normal_flux_i);
                 }
                 else
                 {
-                    diag.Add(diag_elem, diag_elem, normal_flux_i);
+                    diag.Add(diag_elem, diag_elem, -1.0 * normal_flux_i);
                 }
             }
             else if (tf_e_diag.RowSize(truefacet) == 2) // facet is interior
@@ -402,13 +404,13 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
 
                 if (normal_flux_i > 0)
                 {
-                    diag.Set(elem_pair[0], elem_pair[1], normal_flux_i);
-                    diag.Add(elem_pair[1], elem_pair[1], -1.0 * normal_flux_i);
+                    diag.Set(elem_pair[0], elem_pair[1], -1.0 * normal_flux_i);
+                    diag.Add(elem_pair[1], elem_pair[1], normal_flux_i);
                 }
                 else
                 {
-                    diag.Set(elem_pair[1], elem_pair[0], -1.0 * normal_flux_i);
-                    diag.Add(elem_pair[0], elem_pair[0], normal_flux_i);
+                    diag.Set(elem_pair[1], elem_pair[0], normal_flux_i);
+                    diag.Add(elem_pair[0], elem_pair[0], -1.0 * normal_flux_i);
                 }
             }
             else // global boundary
@@ -417,7 +419,7 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
                 const int elem0 = tf_e_diag.GetRowColumns(truefacet)[0];
                 if (normal_flux_i < 0)
                 {
-                    diag.Add(elem0, elem0, normal_flux_i);
+                    diag.Add(elem0, elem0, -1.0 * normal_flux_i);
                 }
             }
         }
@@ -471,16 +473,16 @@ void VisSetup(mfem::socketstream& sout, mfem::ParMesh& pmesh,
       sout << "autoscale off\n";
       sout << "valuerange " << 0.0 << " " << 1.0 << "\n";
 
-      if (pmesh.SpaceDimension() == 2)
+//      if (pmesh.SpaceDimension() == 2)
       {
           sout << "view 0 0\n"; // view from top
           sout << "keys jl\n";  // turn off perspective and light
           sout << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
       }
-      else
-      {
-          sout << "keys ]]]]]]]]]]]]]\n";  // increase size
-      }
+//      else
+//      {
+//          sout << "keys ]]]]]]]]]]]]]\n";  // increase size
+//      }
       sout << "keys c\n";         // show colorbar and mesh
    }
 }
