@@ -138,9 +138,9 @@ void Upscale::SolveFine(const mfem::BlockVector& x, mfem::BlockVector& y) const
     assert(fine_solver_);
 
     fine_solver_->Solve(x, y);
-    y *= -1.0;
+//    y *= -1.0;
 
-    Orthogonalize(y);
+//    Orthogonalize(y);
 }
 
 mfem::BlockVector Upscale::SolveFine(const mfem::BlockVector& x) const

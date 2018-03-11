@@ -174,10 +174,10 @@ MinresBlockSolver::MinresBlockSolver(MPI_Comm comm, const MixedMatrix& mgL)
     }
     else
     {
-        if (myid_ == 0)
-        {
-            D_.EliminateRow(0);
-        }
+//        if (myid_ == 0)
+//        {
+//            D_.EliminateRow(0);
+//        }
 
         hD_.reset(edge_d_td.LeftDiagMult(D_, D_row_start));
         hDt_.reset(hD_->Transpose());
@@ -265,10 +265,10 @@ void MinresBlockSolverFalse::Mult(const mfem::BlockVector& rhs,
     edgedof_d_td.MultTranspose(rhs.GetBlock(0), true_rhs_.GetBlock(0));
     true_rhs_.GetBlock(1) = rhs.GetBlock(1);
 
-    if (!use_W_ && myid_ == 0)
-    {
-        true_rhs_.GetBlock(1)(0) = 0.0;
-    }
+//    if (!use_W_ && myid_ == 0)
+//    {
+//        true_rhs_.GetBlock(1)(0) = 0.0;
+//    }
 
     minres_.Mult(true_rhs_, true_sol_);
 

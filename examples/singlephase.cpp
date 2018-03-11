@@ -54,11 +54,11 @@ public:
    virtual ~FV_Evolution() { }
 };
 
-mfem::HypreParMatrix* DiscreteAdvection(const mfem::Vector& normal_flux,
-                                        const mfem::SparseMatrix& elem_facet,
-                                        const mfem::HypreParMatrix& facet_truefacet);
+std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
+        const mfem::Vector& normal_flux, const mfem::SparseMatrix& elem_facet,
+        const mfem::HypreParMatrix& facet_truefacet);
 
-void VisSetup(MPI_Comm comm, mfem::socketstream& sout, mfem::ParMesh& pmesh,
+void VisSetup(mfem::socketstream& sout, mfem::ParMesh& pmesh,
               mfem::ParGridFunction& saturation, bool& visualization);
 
 int main(int argc, char* argv[])
@@ -111,7 +111,7 @@ int main(int argc, char* argv[])
     bool visualization = false;
     args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                    "--no-visualization", "Enable visualization.");
-    double delta_t = 1.0;
+    double delta_t = 0.1;
     args.AddOption(&delta_t, "-dt", "--delta-t",
                    "Time step.");
     double total_time = 1000.0;
@@ -126,13 +126,13 @@ int main(int argc, char* argv[])
     int write_step = 0;
     args.AddOption(&write_step, "-ws", "--write-step",
                    "Step size for writing data to file.");
-    int well_height = 5;
+    int well_height = 1;
     args.AddOption(&well_height, "-wh", "--well-height",
                    "Well Height.");
-    double inject_rate = 0.3;
+    double inject_rate = 1.0;
     args.AddOption(&inject_rate, "-ir", "--inject-rate",
                    "Injector rate.");
-    double bottom_hole_pressure = 0.0;
+    double bottom_hole_pressure = 1.0;
     args.AddOption(&bottom_hole_pressure, "-bhp", "--bottom-hole-pressure",
                    "Bottom Hole Pressure.");
     double well_shift = 1.0;
@@ -162,29 +162,37 @@ int main(int argc, char* argv[])
     if (nDimensions == 3)
         coarseningFactor[2] = 5;
 
-    const int nbdr = (nDimensions == 3) ? 6 : 4;
+    const int nbdr = 6;
     mfem::Array<int> ess_attr(nbdr);
     ess_attr = 1;
 
     // Setting up finite volume discretization problem
     double scaled_inject = SPE10Problem::CellVolume(nDimensions) * inject_rate;
     printf("Inject: %.8f Scaled Inject: %.8f\n", inject_rate, scaled_inject);
-    SPE10Problem spe10problem(permFile, nDimensions, spe10_scale, slice,
+    SPE10Problem spe10problem(permFile, nDimensions, spe10_scale, slice, ess_attr,
                               nz, well_height, scaled_inject, bottom_hole_pressure, well_shift);
 
     mfem::ParMesh* pmesh = spe10problem.GetParMesh();
     auto& vertex_edge = spe10problem.GetVertexEdge();
     auto edge_d_td = spe10problem.GetEdgeToTrueEdge();
     auto& weight = spe10problem.GetWeight();
+    auto& edge_bdr_att = spe10problem.GetEdgeBoundaryAttributeTable();
+    auto& rhs_sigma_fine = spe10problem.GetEdgeRHS();
     auto& rhs_u_fine = spe10problem.GetVertexRHS();
     auto& well_list = spe10problem.GetWells();
-    auto edge_boundary_att = GenerateBoundaryAttributeTable(pmesh);
+    auto& ess_edof_marker = spe10problem.GetEssentialEdgeDofsMarker();
 
-    int num_injector = 0;
+    unsigned int num_injector = 0;
     for (auto& well : well_list)
     {
         if (well.GetType() == WellType::Injector)
             num_injector++;
+    }
+
+    // add one boundary attribute for edges connecting production wells to reservoir
+    if (num_injector < well_list.size())
+    {
+        ess_attr.Append(1);
     }
 
     mfem::Array<int> well_vertices;
@@ -229,19 +237,15 @@ int main(int argc, char* argv[])
 
     // Create Upscaler and Solve
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partition, *edge_d_td,
-                                  edge_boundary_att, ess_attr, spect_tol, max_evects,
+                                  edge_bdr_att, ess_attr, spect_tol, max_evects,
                                   dual_target, scaled_dual, energy_dual, hybridization);
-
-    mfem::Array<int> marker(fvupscale.GetFineMatrix().getD().Width());
-    marker = 0;
-    sigmafespace.GetEssentialVDofs(ess_attr, marker);
-    fvupscale.MakeFineSolver(marker);
+    fvupscale.MakeFineSolver(ess_edof_marker);
 
     fvupscale.PrintInfo();
     fvupscale.ShowSetupTime();
 
     mfem::BlockVector rhs_fine(fvupscale.GetFineBlockVector());
-    rhs_fine.GetBlock(0) = 0.0;
+    rhs_fine.GetBlock(0) = rhs_sigma_fine;
     rhs_fine.GetBlock(1) = rhs_u_fine;
 
     auto sol_fine = fvupscale.SolveFine(rhs_fine);
@@ -257,30 +261,19 @@ int main(int argc, char* argv[])
 //        ShowErrors(error_info);
 //    }
 
-    std::unique_ptr<mfem::HypreParMatrix> Adv(
-                DiscreteAdvection(sol_fine.GetBlock(0), vertex_edge, *edge_d_td));
-
+    auto Adv = DiscreteAdvection(sol_fine.GetBlock(0), vertex_edge, *edge_d_td);
     mfem::SparseMatrix M = SparseIdentity(Adv->Height());
     M *= spe10problem.CellVolume(nDimensions);
 
-    mfem::Vector influx(rhs_u_fine);
-    for (int i = 0; i < influx.Size(); i++)
-    {
-        if (influx[i] < 0.0)
-        {
-            influx[i] = 0.0;
-        }
-    }
-
-    mfem::Vector S = influx;
+    mfem::Vector S = rhs_u_fine;
     S = 0.0;
 
-    mfem::ParGridFunction saturation(&ufespace);    
-    saturation = S;
-
+    mfem::ParGridFunction saturation(spe10problem.GetVertexFES(), sol_fine.GetBlock(1).GetData());
     mfem::socketstream sout;
-    VisSetup(comm, sout, *pmesh, saturation, visualization);
-
+    if (visualization)
+    {
+        VisSetup(sout, *pmesh, saturation, visualization);
+    }
 
     double time = 0.0;
     int vis_steps = 10;
@@ -288,7 +281,7 @@ int main(int argc, char* argv[])
     mfem::StopWatch chrono;
     chrono.Start();
 
-    FV_Evolution adv(M, *Adv, influx);
+    FV_Evolution adv(M, *Adv, rhs_u_fine);
     adv.SetTime(time);
 
     mfem::ForwardEulerSolver ode_solver;
@@ -312,7 +305,7 @@ int main(int argc, char* argv[])
 
           // 11. Extract the parallel grid function corresponding to the finite
           //     element approximation U (the local solution on each processor).
-          saturation = S;
+          saturation.MakeRef(spe10problem.GetVertexFES(), S.GetData());
 
           if (visualization)
           {
@@ -349,9 +342,9 @@ void FV_Evolution::Mult(const mfem::Vector &x, mfem::Vector &y) const
    RescaleVector(Minv_, y);
 }
 
-mfem::HypreParMatrix* DiscreteAdvection(const mfem::Vector& normal_flux,
-                                        const mfem::SparseMatrix& elem_facet,
-                                        const mfem::HypreParMatrix& facet_truefacet)
+std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
+        const mfem::Vector& normal_flux, const mfem::SparseMatrix& elem_facet,
+        const mfem::HypreParMatrix& facet_truefacet)
 {
     MPI_Comm comm = facet_truefacet.GetComm();
     const int num_elems_diag = elem_facet.Height();
@@ -437,8 +430,8 @@ mfem::HypreParMatrix* DiscreteAdvection(const mfem::Vector& normal_flux,
     offd.Finalize(0);
 
     int num_elems = elem_starts.Last();
-    auto out = new mfem::HypreParMatrix(comm, num_elems, num_elems, elem_starts,
-                                        elem_starts, &diag, &offd, elem_map);
+    auto out = make_unique<mfem::HypreParMatrix>(comm, num_elems, num_elems, elem_starts,
+                                                 elem_starts, &diag, &offd, elem_map);
 
     // Adjust ownership and copy starts arrays
     out->CopyRowStarts();
@@ -451,7 +444,7 @@ mfem::HypreParMatrix* DiscreteAdvection(const mfem::Vector& normal_flux,
     return out;
 }
 
-void VisSetup(MPI_Comm comm, mfem::socketstream& sout, mfem::ParMesh& pmesh,
+void VisSetup(mfem::socketstream& sout, mfem::ParMesh& pmesh,
               mfem::ParGridFunction& saturation, bool& visualization)
 {
    char vishost[] = "localhost";

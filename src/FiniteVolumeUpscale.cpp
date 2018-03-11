@@ -195,10 +195,10 @@ void FiniteVolumeUpscale::MakeFineSolver(const mfem::Array<int>& marker) const
             mfem::Array<int> mfem_const_broken;
             mfem_const_broken.MakeRef(marker);
             Dref.EliminateCols(mfem_const_broken);
-            if (!w_exists && myid_ == 0)
-            {
-                Dref.EliminateRow(0);
-            }
+//            if (!w_exists && myid_ == 0)
+//            {
+//                Dref.EliminateRow(0);
+//            }
 
             fine_solver_ = make_unique<MinresBlockSolverFalse>(comm_, GetFineMatrix());
         }

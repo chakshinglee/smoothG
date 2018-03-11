@@ -542,7 +542,7 @@ void PartitionVerticesByMetis(
 
 // extend edge_boundaryattr by adding empty rows corresponding to wells edges
 void ExtendEdgeBoundaryattr(const std::vector<Well>& well_list,
-                              mfem::SparseMatrix& edge_boundaryattr)
+                            mfem::SparseMatrix& edge_boundaryattr)
 {
     const int old_nedges = edge_boundaryattr.Height();
     int num_well_cells = 0;
@@ -565,8 +565,8 @@ void ExtendEdgeBoundaryattr(const std::vector<Well>& well_list,
 
 // extend edge_boundaryattr by adding new attribute to rows corresponding to wells edges
 void ExtendEdgeBoundaryattr2(const std::vector<Well>& well_list,
-                               mfem::SparseMatrix& edge_boundaryattr,
-                               mfem::Array<int>& well_marker)
+                             mfem::SparseMatrix& edge_boundaryattr,
+                             mfem::Array<int>& well_marker)
 {
     const int old_nedges = edge_boundaryattr.Height();
     const int old_nnz = edge_boundaryattr.NumNonZeroElems();
@@ -629,14 +629,14 @@ void ExtendEdgeBoundaryattr2(const std::vector<Well>& well_list,
         counter += num_cells;
     }
 
-    for (int i = old_nnz; i < new_nnz; ++i)
-    {
-        //printf("j %d: %d\n", i, new_j[i]);
-    }
-    for (int i = old_nedges; i < old_nedges + num_well_cells + 1; ++i)
-    {
-        //printf("i %d: %d\n", i, new_i[i]);
-    }
+//    for (int i = old_nnz; i < new_nnz; ++i)
+//    {
+//        printf("j %d: %d\n", i, new_j[i]);
+//    }
+//    for (int i = old_nedges; i < old_nedges + num_well_cells + 1; ++i)
+//    {
+//        printf("i %d: %d\n", i, new_i[i]);
+//    }
 
     assert(new_i[old_nedges + num_well_cells] == new_nnz);
 
@@ -694,7 +694,7 @@ class SPE10Problem
 {
 public:
     SPE10Problem(const char* permFile, const int nDimensions,
-                 const int spe10_scale, const int slice,
+                 const int spe10_scale, const int slice, const mfem::Array<int>& ess_attr,
                  int nz = 15, int well_height = 5,
                  double inject_rate = 1.0, double bottom_hole_pressure = 0.0, double well_shift = 1.0);
 
@@ -712,7 +712,7 @@ public:
     }
     static double CellVolume(int nDimensions)
     {
-        return (nDimensions == 2 ) ? (20.0 * 10.0) : (20.0 * 10.0 * 2.0);
+        return (20.0 * 10.0 * 2.0);// (nDimensions == 2 ) ? (20.0 * 10.0) : (20.0 * 10.0 * 2.0);
     }
     mfem::ParFiniteElementSpace* GetEdgeFES()
     {
@@ -745,6 +745,15 @@ public:
     const std::vector<Well>& GetWells()
     {
         return well_manager_->GetWells();
+    }
+    const mfem::SparseMatrix& GetEdgeBoundaryAttributeTable()
+    {
+        return edge_bdr_att_;
+    }
+
+    const mfem::Array<int>& GetEssentialEdgeDofsMarker()
+    {
+        return ess_edof_marker_;
     }
     void PrintMeshWithPartitioning(mfem::Array<int>& partition);
 
@@ -782,11 +791,14 @@ private:
     mfem::Vector bbmin_;
     mfem::Vector bbmax_;
 
+    mfem::SparseMatrix edge_bdr_att_;
+    mfem::Array<int> ess_edof_marker_;
+
     int myid_;
 };
 
 SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
-                           const int spe10_scale, const int slice, int nz,
+                           const int spe10_scale, const int slice, const mfem::Array<int>& ess_attr, int nz,
                            int well_height, double inject_rate, double bottom_hole_pressure, double well_shift)
 {
     int num_procs;
@@ -865,11 +877,22 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
     //setup_nine_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
     //setup_ten_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
     setup_five_spot_pattern_center(N, nDimensions, *well_manager_, well_height, inject_rate,
-                            bottom_hole_pressure, well_shift);
+                                   bottom_hole_pressure, well_shift);
 
     edge_d_td_ = IntegrateReservoirAndWellModels(
                      well_manager_->GetWells(), vertex_edge_, weight_,
                      *(sigmafespace_->Dof_TrueDof_Matrix()), rhs_sigma_, rhs_u_);
+
+    auto edge_bdr_att_tmp = GenerateBoundaryAttributeTable(pmesh_.get());
+    edge_bdr_att_.Swap(edge_bdr_att_tmp);
+    sigmafespace_->GetEssentialVDofs(ess_attr, ess_edof_marker_);
+
+    mfem::Array<int> well_marker;
+    ExtendEdgeBoundaryattr2(well_manager_->GetWells(), edge_bdr_att_, well_marker);
+
+    well_marker = 0;
+    std::copy_n(ess_edof_marker_.GetData(), ess_edof_marker_.Size(), well_marker.GetData());
+    mfem::Swap(ess_edof_marker_, well_marker);
 }
 
 void SPE10Problem::setup_nine_spot_pattern(const mfem::Array<int>& N, const int nDim,
