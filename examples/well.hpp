@@ -876,8 +876,8 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
     //setup_five_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
     //setup_nine_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
     //setup_ten_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
-    setup_five_spot_pattern_center(N, nDimensions, *well_manager_, well_height, inject_rate,
-                                   bottom_hole_pressure, well_shift);
+    setup_five_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
+                                   bottom_hole_pressure);
 
     edge_d_td_ = IntegrateReservoirAndWellModels(
                      well_manager_->GetWells(), vertex_edge_, weight_,

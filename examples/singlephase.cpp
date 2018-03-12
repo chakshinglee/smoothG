@@ -120,9 +120,6 @@ int main(int argc, char* argv[])
     int vis_step = 0;
     args.AddOption(&vis_step, "-vs", "--vis-step",
                    "Step size for visualization.");
-    double vis_range = 0.5;
-    args.AddOption(&vis_range, "-vr", "--vis-range",
-                   "Upper limit for visualization data.");
     int write_step = 0;
     args.AddOption(&write_step, "-ws", "--write-step",
                    "Step size for writing data to file.");
@@ -352,80 +349,85 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
     const int num_elems_diag = elem_facet.Height();
     const int num_facets = elem_facet.Width();
 
-    mfem::SparseMatrix f_tf_diag, f_tf_offd;
-    HYPRE_Int * tf_map;
-    facet_truefacet.GetDiag(f_tf_diag);
-    facet_truefacet.GetOffd(f_tf_offd, tf_map);
-
     mfem::Array<int> elem_starts;
     GenerateOffsets(comm, num_elems_diag, elem_starts);
 
     using ParMatPtr = std::unique_ptr<mfem::HypreParMatrix>;
     ParMatPtr elem_truefacet(facet_truefacet.LeftDiagMult(elem_facet, elem_starts));
     ParMatPtr truefacet_elem(elem_truefacet->Transpose());
+    ParMatPtr facet_truefacet_elem(mfem::ParMult(&facet_truefacet, truefacet_elem.get()));
 
-    mfem::SparseMatrix tf_e_diag, tf_e_offd;
-    HYPRE_Int* copy_map;
-    truefacet_elem->GetDiag(tf_e_diag);
-    truefacet_elem->GetOffd(tf_e_offd, copy_map);
-    HYPRE_Int* elem_map = new HYPRE_Int[tf_e_offd.Width()];
-    std::copy_n(copy_map, tf_e_offd.Width(), elem_map);
+    mfem::SparseMatrix f_tf_e_diag, f_tf_e_offd, f_tf_diag;
+    HYPRE_Int* elem_map;
+    facet_truefacet_elem->GetDiag(f_tf_e_diag);
+    facet_truefacet_elem->GetOffd(f_tf_e_offd, elem_map);
+    facet_truefacet.GetDiag(f_tf_diag);
+
+    HYPRE_Int* elem_map_copy = new HYPRE_Int[f_tf_e_offd.Width()];
+    std::copy_n(elem_map, f_tf_e_offd.Width(), elem_map_copy);
 
     mfem::SparseMatrix diag(num_elems_diag, num_elems_diag);
-    mfem::SparseMatrix offd(num_elems_diag, tf_e_offd.Width());
+    mfem::SparseMatrix offd(num_elems_diag, f_tf_e_offd.Width());
 
-    for (int i = 0; i < num_facets; i++)
+    for (int ifacet = 0; ifacet < num_facets; ifacet++)
     {
-        double normal_flux_i = normal_flux(i);
+        const double normal_flux_i = normal_flux(ifacet);
 
-        if (f_tf_diag.RowSize(i) != 0) // facet is owned by local processor
+        if (f_tf_e_diag.RowSize(ifacet) == 2) // facet is interior
         {
-            assert(f_tf_diag.RowSize(i) == 1);
-            int truefacet = f_tf_diag.GetRowColumns(i)[0];
+            const int* elem_pair = f_tf_e_diag.GetRowColumns(ifacet);
 
-            if (tf_e_offd.RowSize(truefacet) == 1) // facet is shared
+            if (normal_flux_i > 0)
             {
-                assert(tf_e_diag.RowSize(truefacet) == 1);
-                int diag_elem = tf_e_diag.GetRowColumns(truefacet)[0];
-                int offd_elem = tf_e_offd.GetRowColumns(truefacet)[0];
+                diag.Set(elem_pair[0], elem_pair[1], -1.0 * normal_flux_i);
+                diag.Add(elem_pair[1], elem_pair[1], normal_flux_i);
+            }
+            else
+            {
+                diag.Set(elem_pair[1], elem_pair[0], normal_flux_i);
+                diag.Add(elem_pair[0], elem_pair[0], -1.0 * normal_flux_i);
+            }
+        }
+        else
+        {
+            assert(f_tf_e_diag.RowSize(ifacet) == 1);
+            const int diag_elem = f_tf_e_diag.GetRowColumns(ifacet)[0];
 
-                if (normal_flux_i > 0)
+            if (f_tf_e_offd.RowSize(ifacet) == 1) // facet is shared
+            {
+                const int offd_elem = f_tf_e_offd.GetRowColumns(ifacet)[0];
+
+                if (f_tf_diag.RowSize(ifacet) > 0) // facet is owned by local proc
                 {
-                    offd.Set(diag_elem, offd_elem, -1.0 * normal_flux_i);
+                    if (normal_flux_i > 0)
+                    {
+                        offd.Set(diag_elem, offd_elem, -1.0 * normal_flux_i);
+                    }
+                    else
+                    {
+                        diag.Add(diag_elem, diag_elem, -1.0 * normal_flux_i);
+                    }
                 }
-                else
+                else // facet is owned by the neighbor proc
+                {
+                    if (normal_flux_i > 0)
+                    {
+                        diag.Add(diag_elem, diag_elem, normal_flux_i);
+                    }
+                    else
+                    {
+                        offd.Set(diag_elem, offd_elem, normal_flux_i);
+                    }
+                }
+            }
+            else  // global boundary
+            {
+                if (normal_flux_i < 0)
                 {
                     diag.Add(diag_elem, diag_elem, -1.0 * normal_flux_i);
                 }
             }
-            else if (tf_e_diag.RowSize(truefacet) == 2) // facet is interior
-            {
-                const int* elem_pair = tf_e_diag.GetRowColumns(truefacet);
-
-                if (normal_flux_i > 0)
-                {
-                    diag.Set(elem_pair[0], elem_pair[1], -1.0 * normal_flux_i);
-                    diag.Add(elem_pair[1], elem_pair[1], normal_flux_i);
-                }
-                else
-                {
-                    diag.Set(elem_pair[1], elem_pair[0], normal_flux_i);
-                    diag.Add(elem_pair[0], elem_pair[0], -1.0 * normal_flux_i);
-                }
-            }
-            else // global boundary
-            {
-                assert(tf_e_diag.RowSize(truefacet) == 1);
-                const int elem0 = tf_e_diag.GetRowColumns(truefacet)[0];
-                if (normal_flux_i < 0)
-                {
-                    diag.Add(elem0, elem0, -1.0 * normal_flux_i);
-                }
-            }
         }
-        // else? I think we need to do something when the facet is not owned,
-        // although I dont know how at the moment, and the parallel run seems
-        // match with serial run
     }
 
     diag.Finalize(0);
@@ -433,7 +435,7 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
 
     int num_elems = elem_starts.Last();
     auto out = make_unique<mfem::HypreParMatrix>(comm, num_elems, num_elems, elem_starts,
-                                                 elem_starts, &diag, &offd, elem_map);
+                                                 elem_starts, &diag, &offd, elem_map_copy);
 
     // Adjust ownership and copy starts arrays
     out->CopyRowStarts();
