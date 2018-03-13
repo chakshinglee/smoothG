@@ -450,7 +450,7 @@ void Transport(SPE10Problem& spe10problem, const mfem::BlockVector& flow_sol,
     {
         VisSetup(sout, *pmesh, saturation, visualize);
     }
-return;
+
     double time = 0.0;
 
     mfem::StopWatch chrono;
