@@ -79,14 +79,14 @@ FiniteVolumeUpscale::FiniteVolumeUpscale(MPI_Comm comm,
     {
         for (int mm = 0; mm < marker.Size(); ++mm)
         {
-            // Assume M diagonal, no ess data
             if (marker[mm])
-                Mref.EliminateRow(mm, true);
+                Mref.EliminateRowCol(mm);
         }
 
         Dref.EliminateCols(marker);
 
         coarse_solver_ = make_unique<MinresBlockSolverFalse>(comm, mixed_laplacians_.back());
+        coarse_solver_->SetMaxIter(50000);
     }
 
     MakeCoarseVectors();
@@ -151,9 +151,8 @@ FiniteVolumeUpscale::FiniteVolumeUpscale(MPI_Comm comm,
     {
         for (int mm = 0; mm < marker.Size(); ++mm)
         {
-            // Assume M diagonal, no ess data
             if (marker[mm])
-                Mref.EliminateRow(mm, true);
+                Mref.EliminateRowCol(mm);
         }
 
         Dref.EliminateCols(marker);

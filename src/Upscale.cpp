@@ -65,13 +65,13 @@ void Upscale::Solve(const mfem::BlockVector& x, mfem::BlockVector& y) const
     assert(coarse_solver_);
 
     coarsener_->coarsen(x, *rhs_coarse_);
-    rhs_coarse_->GetBlock(1) *= -1.0;
+//    rhs_coarse_->GetBlock(1) *= -1.0;
 
     coarse_solver_->Solve(*rhs_coarse_, *sol_coarse_);
 
     coarsener_->interpolate(*sol_coarse_, y);
 
-    Orthogonalize(y);
+//    Orthogonalize(y);
 }
 
 mfem::BlockVector Upscale::Solve(const mfem::BlockVector& x) const

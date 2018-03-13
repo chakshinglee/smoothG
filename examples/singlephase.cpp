@@ -61,6 +61,9 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
 void VisSetup(mfem::socketstream& sout, mfem::ParMesh& pmesh,
               mfem::ParGridFunction& saturation, bool& visualization);
 
+void Transport(SPE10Problem& spe10problem, const mfem::BlockVector& normal_flux,
+               double delta_t, double total_time, bool visualize, int vis_step);
+
 int main(int argc, char* argv[])
 {
     int num_procs, myid;
@@ -86,7 +89,7 @@ int main(int argc, char* argv[])
     int max_evects = 4;
     args.AddOption(&max_evects, "-m", "--max-evects",
                    "Maximum eigenvectors per aggregate.");
-    double spect_tol = 1.e-3;
+    double spect_tol = 1.0;
     args.AddOption(&spect_tol, "-t", "--spect-tol",
                    "Spectral tolerance for eigenvalue problems.");
     bool metis_agglomeration = false;
@@ -112,32 +115,26 @@ int main(int argc, char* argv[])
     args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                    "--no-visualization", "Enable visualization.");
     double delta_t = 1.0;
-    args.AddOption(&delta_t, "-dt", "--delta-t",
-                   "Time step.");
+    args.AddOption(&delta_t, "-dt", "--delta-t", "Time step.");
     double total_time = 1000.0;
-    args.AddOption(&total_time, "-time", "--total-time",
-                   "Total time to step.");
-    int vis_step = 0;
+    args.AddOption(&total_time, "-time", "--total-time", "Total time to step.");
+    int vis_step = 10;
     args.AddOption(&vis_step, "-vs", "--vis-step",
                    "Step size for visualization.");
     int write_step = 0;
     args.AddOption(&write_step, "-ws", "--write-step",
                    "Step size for writing data to file.");
     int well_height = 1;
-    args.AddOption(&well_height, "-wh", "--well-height",
-                   "Well Height.");
+    args.AddOption(&well_height, "-wh", "--well-height", "Well Height.");
     double inject_rate = 0.3;
-    args.AddOption(&inject_rate, "-ir", "--inject-rate",
-                   "Injector rate.");
+    args.AddOption(&inject_rate, "-ir", "--inject-rate", "Injector rate.");
     double bottom_hole_pressure = 1.0;
     args.AddOption(&bottom_hole_pressure, "-bhp", "--bottom-hole-pressure",
                    "Bottom Hole Pressure.");
     double well_shift = 1.0;
-    args.AddOption(&well_shift, "-wsh", "--well-shift",
-                   "Shift well from corners");
+    args.AddOption(&well_shift, "-wsh", "--well-shift", "Shift well from corners");
     int nz = 15;
-        args.AddOption(&nz, "-nz", "--num-z",
-                       "Num of slices in z direction for 3d run.");
+    args.AddOption(&nz, "-nz", "--num-z", "Num of slices in z direction for 3d run.");
     args.Parse();
     if (!args.Good())
     {
@@ -169,7 +166,6 @@ int main(int argc, char* argv[])
     SPE10Problem spe10problem(permFile, nDimensions, spe10_scale, slice, ess_attr,
                               nz, well_height, scaled_inject, bottom_hole_pressure, well_shift);
 
-    mfem::ParMesh* pmesh = spe10problem.GetParMesh();
     auto& vertex_edge = spe10problem.GetVertexEdge();
     auto edge_d_td = spe10problem.GetEdgeToTrueEdge();
     auto& weight = spe10problem.GetWeight();
@@ -189,7 +185,7 @@ int main(int argc, char* argv[])
     // add one boundary attribute for edges connecting production wells to reservoir
     if (num_injector < well_list.size())
     {
-        ess_attr.Append(1);
+        ess_attr.Append(0);
     }
 
     mfem::Array<int> well_vertices;
@@ -230,14 +226,12 @@ int main(int argc, char* argv[])
 
     bool adaptive_part = false;
     mfem::Array<int> partition;
-    PartitionVerticesByMetis(vertex_edge, well_vertices, nparts, partition, adaptive_part);
+    PartitionVerticesByMetis(vertex_edge, weight, well_vertices, nparts, partition, adaptive_part);
 
     // Create Upscaler and Solve
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partition, *edge_d_td,
                                   edge_bdr_att, ess_attr, spect_tol, max_evects,
                                   dual_target, scaled_dual, energy_dual, hybridization);
-    fvupscale.MakeFineSolver(ess_edof_marker);
-
     fvupscale.PrintInfo();
     fvupscale.ShowSetupTime();
 
@@ -245,83 +239,26 @@ int main(int argc, char* argv[])
     rhs_fine.GetBlock(0) = rhs_sigma_fine;
     rhs_fine.GetBlock(1) = rhs_u_fine;
 
+    // Fine scale transport based on fine flux
+    fvupscale.MakeFineSolver(ess_edof_marker);
     auto sol_fine = fvupscale.SolveFine(rhs_fine);
     fvupscale.ShowFineSolveInfo();
+    Transport(spe10problem, sol_fine, delta_t, total_time, visualization, vis_step);
 
-//    auto sol_upscaled = fvupscale.Solve(rhs_fine);
-//    fvupscale.ShowCoarseSolveInfo();
+    // Fine scale transport based on upscaled flux
+    auto sol_upscaled = fvupscale.Solve(rhs_fine);
+    fvupscale.ShowCoarseSolveInfo();
+    Transport(spe10problem, sol_upscaled, delta_t, total_time, visualization, vis_step);
 
-//    auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
-
-//    if (myid == 0)
-//    {
-//        ShowErrors(error_info);
-//    }
-
-    auto Adv = DiscreteAdvection(sol_fine.GetBlock(0), vertex_edge, *edge_d_td);
-    mfem::SparseMatrix M = SparseIdentity(Adv->Height());
-    M *= spe10problem.CellVolume(nDimensions);
-
-    mfem::Vector influx(rhs_u_fine);
-    influx *= -1.0;
-    mfem::Vector S = rhs_u_fine;
-    S = 0.0;
-
-    mfem::ParGridFunction saturation(spe10problem.GetVertexFES(), S.GetData());
-    mfem::socketstream sout;
-    if (visualization)
-    {
-        VisSetup(sout, *pmesh, saturation, visualization);
-    }
-
-    double time = 0.0;
-    int vis_steps = 10;
-
-    mfem::StopWatch chrono;
-    chrono.Start();
-
-    FV_Evolution adv(M, *Adv, influx);
-    adv.SetTime(time);
-
-    mfem::ForwardEulerSolver ode_solver;
-    ode_solver.Init(adv);
-
-    bool done = false;
-    for (int ti = 0; !done; )
-    {
-       double dt_real = std::min(delta_t, total_time - time);
-       ode_solver.Step(S, time, dt_real);
-       ti++;
-
-       done = (time >= total_time - 1e-8*delta_t);
-
-       if (done || ti % vis_steps == 0)
-       {
-          if (myid == 0)
-          {
-             std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
-          }
-
-          // 11. Extract the parallel grid function corresponding to the finite
-          //     element approximation U (the local solution on each processor).
-          saturation.MakeRef(spe10problem.GetVertexFES(), S.GetData());
-
-          if (visualization)
-          {
-             sout << "parallel " << num_procs << " " << myid << "\n";
-             sout << "solution\n" << *pmesh << saturation << std::flush;
-          }
-       }
-    }
+    auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
     if (myid == 0)
     {
-       std::cout << "Final time " << time << " reached, time stepping finished.\n";
+        ShowErrors(error_info);
     }
 
     return EXIT_SUCCESS;
 }
 
-// Implementation of class FE_Evolution
 FV_Evolution::FV_Evolution(const mfem::SparseMatrix& M, const mfem::HypreParMatrix& K,
                            const mfem::Vector& b)
    : mfem::TimeDependentOperator(K.Height()), K_(K), b_(b)
@@ -489,3 +426,71 @@ void VisSetup(mfem::socketstream& sout, mfem::ParMesh& pmesh,
    }
 }
 
+
+void Transport(SPE10Problem& spe10problem, const mfem::BlockVector& flow_sol,
+               double delta_t, double total_time, bool visualize, int vis_step)
+{
+    const mfem::Vector& normal_flux = flow_sol.GetBlock(0);
+    mfem::ParMesh* pmesh = spe10problem.GetParMesh();
+    auto& vertex_edge = spe10problem.GetVertexEdge();
+    auto edge_d_td = spe10problem.GetEdgeToTrueEdge();
+
+    auto Adv = DiscreteAdvection(normal_flux, vertex_edge, *edge_d_td);
+    mfem::SparseMatrix M = SparseIdentity(Adv->Height());
+    M *= spe10problem.CellVolume(pmesh->SpaceDimension());
+
+    mfem::Vector influx(spe10problem.GetVertexRHS());
+    influx *= -1.0;
+    mfem::Vector S = influx;
+    S = 0.0;
+
+    mfem::ParGridFunction saturation(spe10problem.GetVertexFES(), S.GetData());
+    mfem::socketstream sout;
+    if (visualize)
+    {
+        VisSetup(sout, *pmesh, saturation, visualize);
+    }
+return;
+    double time = 0.0;
+
+    mfem::StopWatch chrono;
+    chrono.Start();
+
+    FV_Evolution adv(M, *Adv, influx);
+    adv.SetTime(time);
+
+    mfem::ForwardEulerSolver ode_solver;
+    ode_solver.Init(adv);
+
+    bool done = false;
+    for (int ti = 0; !done; )
+    {
+       double dt_real = std::min(delta_t, total_time - time);
+       ode_solver.Step(S, time, dt_real);
+       ti++;
+
+       done = (time >= total_time - 1e-8*delta_t);
+
+       if (done || ti % vis_step == 0)
+       {
+          if (pmesh->GetMyRank() == 0)
+          {
+             std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
+          }
+
+          // 11. Extract the parallel grid function corresponding to the finite
+          //     element approximation U (the local solution on each processor).
+          saturation.MakeRef(spe10problem.GetVertexFES(), S.GetData());
+
+          if (visualize)
+          {
+             sout << "parallel " << pmesh->GetNRanks() << " " << pmesh->GetMyRank() << "\n";
+             sout << "solution\n" << *pmesh << saturation << std::flush;
+          }
+       }
+    }
+    if (pmesh->GetMyRank() == 0)
+    {
+       std::cout << "Time stepping done in " << chrono.RealTime() << "s.\n";
+    }
+}

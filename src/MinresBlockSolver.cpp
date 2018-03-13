@@ -84,21 +84,21 @@ void MinresBlockSolver::Init(mfem::HypreParMatrix* M, mfem::HypreParMatrix* D,
     }
     else
     {
-        mfem::SparseMatrix W(D->Height());
-        W_.Swap(W);
+//        mfem::SparseMatrix W(D->Height());
+//        W_.Swap(W);
 
-        if (myid_ == 0)
-        {
-            W_.Add(0, 0, 1.0);
-        }
-        W_.Finalize();
+//        if (myid_ == 0)
+//        {
+//            W_.Add(0, 0, 1.0);
+//        }
+//        W_.Finalize();
 
-        hW_ = make_unique<mfem::HypreParMatrix>(comm_, D->GetGlobalNumRows(),
-                                                D->RowPart(), &W_);
+//        hW_ = make_unique<mfem::HypreParMatrix>(comm_, D->GetGlobalNumRows(),
+//                                                D->RowPart(), &W_);
 
-        operator_.SetBlock(1, 1, hW_.get());
+//        operator_.SetBlock(1, 1, hW_.get());
 
-        nnz_ += 1;
+//        nnz_ += 1;
     }
 
     mfem::HypreDiagScale* Mprec = new mfem::HypreDiagScale(*M);

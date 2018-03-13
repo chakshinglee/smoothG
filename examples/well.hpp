@@ -235,8 +235,8 @@ void WellManager::AddWell(const WellType type,
 
 mfem::SparseMatrix BuildReservoirGraph(const mfem::ParMesh& pmesh)
 {
-    const mfem::Table& vertex_edge_table = pmesh.Dimension() == 2 ?
-                                           pmesh.ElementToEdgeTable() : pmesh.ElementToFaceTable();
+    const mfem::Table& vertex_edge_table =
+            pmesh.Dimension() == 2 ? pmesh.ElementToEdgeTable() : pmesh.ElementToFaceTable();
 
     return TableToMatrix(vertex_edge_table);
 }
@@ -502,12 +502,14 @@ void WritePoints(double time, std::ofstream& output, const mfem::Vector& values)
 
 void PartitionVerticesByMetis(
     const mfem::SparseMatrix& vertex_edge,
+    const mfem::Vector& edge_weight,
     const mfem::Array<int>& isolate_vertices,
     int num_partitions,
     mfem::Array<int>& partition,
     int degree = 1)
 {
     mfem::SparseMatrix e_v = smoothg::Transpose(vertex_edge);
+    e_v.ScaleRows(edge_weight);
     mfem::SparseMatrix vert_vert = smoothg::Mult(vertex_edge, e_v);
 
     MetisGraphPartitioner partitioner;
@@ -521,23 +523,23 @@ void PartitionVerticesByMetis(
         vert_vert_ext.Swap(tmp);
     }
 
-    mfem::Array<int> connected_vertices;
-    for (auto i : isolate_vertices)
-    {
-        GetTableRow(vert_vert_ext, i, connected_vertices);
+//    mfem::Array<int> connected_vertices;
+//    for (auto i : isolate_vertices)
+//    {
+//        GetTableRow(vert_vert_ext, i, connected_vertices);
 
-        for (auto connection : connected_vertices)
-        {
-            if (connection != i)
-            {
-                partitioner.SetPostIsolateVertices(connection);
-            }
-        }
-    }
+//        for (auto connection : connected_vertices)
+//        {
+//            if (connection != i)
+//            {
+//                partitioner.SetPostIsolateVertices(i);
+//            }
+//        }
+//    }
 
     partitioner.SetPostIsolateVertices(isolate_vertices);
 
-    partitioner.doPartition(vert_vert, num_partitions, partition);
+    partitioner.doPartition(vert_vert, num_partitions, partition, true);
 }
 
 // extend edge_boundaryattr by adding empty rows corresponding to wells edges
@@ -877,7 +879,7 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
     //setup_nine_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
     //setup_ten_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
     setup_five_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
-                                   bottom_hole_pressure);
+                            bottom_hole_pressure);
 
     edge_d_td_ = IntegrateReservoirAndWellModels(
                      well_manager_->GetWells(), vertex_edge_, weight_,
@@ -1154,7 +1156,7 @@ void SPE10Problem::setup_five_spot_pattern(const mfem::Array<int>& N, const int 
     const int num_wells = 5;
 
     std::vector<std::vector<int>> producer_well_cells(num_wells - 1);
-    std::vector<std::vector<int>>injector_well_cells(1);
+    std::vector<std::vector<int>> injector_well_cells(1);
 
     mfem::DenseMatrix point(3, num_wells);
     // Producers
