@@ -68,6 +68,15 @@ FiniteVolumeUpscale::FiniteVolumeUpscale(MPI_Comm comm,
                        coarsener_->construct_face_facedof_table(),
                        ess_attr, marker);
 
+    for (int i = 0; i < ess_attr.Size(); i++)
+    {
+        if (ess_attr[i] == 0)
+        {
+            remove_one_dof_ = false;
+            break;
+        }
+    }
+
     if (hybridization) // Hybridization solver
     {
         auto face_bdratt = coarsener_->get_GraphTopology_ref().face_bdratt_;
@@ -85,7 +94,7 @@ FiniteVolumeUpscale::FiniteVolumeUpscale(MPI_Comm comm,
 
         Dref.EliminateCols(marker);
 
-        coarse_solver_ = make_unique<MinresBlockSolverFalse>(comm, mixed_laplacians_.back());
+        coarse_solver_ = make_unique<MinresBlockSolverFalse>(comm, mixed_laplacians_.back(), remove_one_dof_);
         coarse_solver_->SetMaxIter(50000);
     }
 
@@ -194,12 +203,13 @@ void FiniteVolumeUpscale::MakeFineSolver(const mfem::Array<int>& marker) const
             mfem::Array<int> mfem_const_broken;
             mfem_const_broken.MakeRef(marker);
             Dref.EliminateCols(mfem_const_broken);
-//            if (!w_exists && myid_ == 0)
-//            {
-//                Dref.EliminateRow(0);
-//            }
 
-            fine_solver_ = make_unique<MinresBlockSolverFalse>(comm_, GetFineMatrix());
+            if (!w_exists && remove_one_dof_ && myid_ == 0)
+            {
+                Dref.EliminateRow(0);
+            }
+
+            fine_solver_ = make_unique<MinresBlockSolverFalse>(comm_, GetFineMatrix(), remove_one_dof_);
         }
     }
 }

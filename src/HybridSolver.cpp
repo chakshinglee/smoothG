@@ -182,14 +182,14 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
     // Constructing the relation table (in SparseMatrix format) between edge
     // dof and multiplier dof. For every edge dof that is associated with a
     // face, a Lagrange multiplier dof associated with the edge dof is created
-    mfem::Array<int> j_multiplier_edgedof;
+
 
     // construct multiplier dof to true dof table
     if (fine_level)
     {
         num_multiplier_dofs_ = num_edge_dofs_;
-        j_multiplier_edgedof.SetSize(num_edge_dofs_);
-        std::iota(j_multiplier_edgedof.GetData(), j_multiplier_edgedof.GetData() + num_edge_dofs_, 0);
+        multiplier_to_edgedof_.SetSize(num_edge_dofs_);
+        std::iota(multiplier_to_edgedof_.GetData(), multiplier_to_edgedof_.GetData() + num_edge_dofs_, 0);
         Agg_multiplier_.MakeRef(Agg_edgedof_);
 
         GenerateOffsets(comm_, num_multiplier_dofs_, multiplier_start_);
@@ -222,7 +222,7 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
         mfem::SparseMatrix multiplier_edgedof(smoothg::Transpose(edgedof_multiplier) );
 
         mfem::Array<int> j_array(multiplier_edgedof.GetJ(), multiplier_edgedof.NumNonZeroElems());
-        j_array.Copy(j_multiplier_edgedof);
+        j_array.Copy(multiplier_to_edgedof_);
 
         Agg_multiplier_.Clear();
         mfem::SparseMatrix Agg_m_tmp(smoothg::Mult(Agg_edgedof_, edgedof_multiplier));
@@ -246,7 +246,7 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
     // Assemble the hybridized system
     HybridSystem_ = make_unique<mfem::SparseMatrix>(num_multiplier_dofs_);
 
-    AssembleHybridSystem(M_el, j_multiplier_edgedof);
+    AssembleHybridSystem(M_el);
     HybridSystem_->Finalize();
 
     // Mark the multiplier dof with essential BC
@@ -270,26 +270,37 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
 
     }
 
-    HybridSystemElim_ = make_unique<mfem::SparseMatrix>(*HybridSystem_, false);
     if (ess_multiplier_bc_)
     {
+        // eliminate the essential dofs and save the eliminated part
+        HybridSystemElim_ = make_unique<mfem::SparseMatrix>(num_multiplier_dofs_);
         for (int mm = 0; mm < num_multiplier_dofs_; ++mm)
         {
             if (ess_multiplier_dofs_[mm])
             {
-                HybridSystemElim_->EliminateRowCol(mm);
+                HybridSystem_->EliminateRowCol(mm, *HybridSystemElim_);
             }
         }
+
+        // Only keep H_{ib} block for elimination later
+        for (int mm = 0; mm < num_multiplier_dofs_; ++mm)
+        {
+            if (ess_multiplier_dofs_[mm])
+            {
+                HybridSystemElim_->EliminateRow(mm);
+            }
+        }
+
     }
     else if (!use_w_)
     {
         if (myid_ == 0)
-            HybridSystemElim_->EliminateRowCol(0);
+            HybridSystem_->EliminateRowCol(0);
     }
 
     auto HybridSystem_d = make_unique<mfem::HypreParMatrix>(
                               comm_, multiplier_start_.Last(), multiplier_start_,
-                              HybridSystemElim_.get());
+                              HybridSystem_.get());
 
     if (rescale_iter_ == 0 || use_spectralAMGe_)
     {
@@ -345,9 +356,7 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
     Mu_.SetSize(num_multiplier_dofs_);
 }
 
-void HybridSolver::AssembleHybridSystem(
-    const std::vector<mfem::DenseMatrix>& M_el,
-    const mfem::Array<int>& j_multiplier_edgedof)
+void HybridSolver::AssembleHybridSystem(const std::vector<mfem::DenseMatrix>& M_el)
 {
     const int map_size = std::max(num_edge_dofs_, Agg_vertexdof_.Width());
     mfem::Array<int> edgedof_global_to_local_map(map_size);
@@ -394,7 +403,7 @@ void HybridSolver::AssembleHybridSystem(
         double* Cloc_data = new double[nlocal_multiplier];
         for (int i = 0; i < nlocal_multiplier; ++i)
         {
-            const int edgedof_global_id = j_multiplier_edgedof[local_multiplier[i]];
+            const int edgedof_global_id = multiplier_to_edgedof_[local_multiplier[i]];
             const int edgedof_local_id = edgedof_global_to_local_map[edgedof_global_id];
             Cloc_j[i] = edgedof_local_id;
             if (edgedof_IsOwned_.RowSize(edgedof_global_id) &&
@@ -484,9 +493,7 @@ void HybridSolver::AssembleHybridSystem(
     }
 }
 
-void HybridSolver::AssembleHybridSystem(
-    const std::vector<mfem::Vector>& M_el,
-    const mfem::Array<int>& j_multiplier_edgedof)
+void HybridSolver::AssembleHybridSystem(const std::vector<mfem::Vector>& M_el)
 {
     const int map_size = std::max(num_edge_dofs_, Agg_vertexdof_.Width());
     mfem::Array<int> edgedof_global_to_local_map(map_size);
@@ -542,7 +549,7 @@ void HybridSolver::AssembleHybridSystem(
 
         for (int i = 0; i < nlocal_multiplier; ++i)
         {
-            const int edgedof_global_id = j_multiplier_edgedof[local_multiplier[i]];
+            const int edgedof_global_id = multiplier_to_edgedof_[local_multiplier[i]];
             const int edgedof_local_id = edgedof_global_to_local_map[edgedof_global_id];
             Cloc_j[i] = edgedof_local_id;
             CMinvCT(i) = 1. / M_diag(edgedof_local_id);
@@ -629,18 +636,21 @@ void HybridSolver::Mult(const mfem::BlockVector& Rhs, mfem::BlockVector& Sol) co
 
     // TODO: nonzero b.c.
     // correct right hand side due to boundary condition
-    // can this be calculated w/o copy of data on every mult?
     if (ess_multiplier_bc_)
     {
-        mfem::SparseMatrix mat_hybrid(*HybridSystem_, false);
-        for (int mm = 0; mm < mat_hybrid.Size(); ++mm)
+        for (int m = 0; m < ess_multiplier_dofs_.Size(); ++m)
         {
-            if (ess_multiplier_dofs_[mm])
+            if (ess_multiplier_dofs_[m])
             {
-                mat_hybrid.EliminateRowCol(mm, 0.0, Hrhs_);
-                //mat_hybrid.EliminateRowCol(mm, Mu_(mm), Hrhs_);
+                Mu_(m) = -1.0 * Rhs(multiplier_to_edgedof_[m]);
+                Hrhs_(m) = Mu_(m);
+            }
+            else
+            {
+                Mu_(m) = 0.0;
             }
         }
+        HybridSystemElim_->AddMult(Mu_, Hrhs_, -1.0);
     }
     else if (!use_w_)
     {

@@ -160,8 +160,7 @@ public:
     virtual ~HybridSolver();
 
     /// Wrapper for solving the saddle point system through hybridization
-    void Mult(const mfem::BlockVector& Rhs,
-              mfem::BlockVector& Sol) const;
+    void Mult(const mfem::BlockVector& Rhs, mfem::BlockVector& Sol) const;
 
     /// Same as Mult()
     void Solve(const mfem::BlockVector& rhs, mfem::BlockVector& sol) const
@@ -211,13 +210,9 @@ protected:
     /**
        @todo this method and its cousin share a lot of duplicated code
     */
-    void AssembleHybridSystem(
-        const std::vector<mfem::DenseMatrix>& M_el,
-        const mfem::Array<int>& j_multiplier_edgedof);
+    void AssembleHybridSystem(const std::vector<mfem::DenseMatrix>& M_el);
 
-    void AssembleHybridSystem(
-        const std::vector<mfem::Vector>& M_el,
-        const mfem::Array<int>& j_multiplier_edgedof);
+    void AssembleHybridSystem(const std::vector<mfem::Vector>& M_el);
 
     // Compute scaling vector and the scaled hybridized system
     void ComputeScaledHybridSystem(const mfem::HypreParMatrix& H_d);
@@ -238,11 +233,12 @@ private:
     const mfem::SparseMatrix* W_;
 
     std::unique_ptr<mfem::SparseMatrix> HybridSystem_;
-    std::unique_ptr<mfem::SparseMatrix> HybridSystemElim_;
     std::unique_ptr<mfem::HypreParMatrix> pHybridSystem_;
     std::unique_ptr<mfem::Solver> prec_;
     std::unique_ptr<mfem::CGSolver> cg_;
 
+    // eliminated part of HybridSystem_ (for applying elimination in repeated solves)
+    std::unique_ptr<mfem::SparseMatrix> HybridSystemElim_;
 
     std::vector<mfem::DenseMatrix> Hybrid_el_;
 
@@ -255,6 +251,7 @@ private:
 
     bool ess_multiplier_bc_;
     mfem::Array<int> ess_multiplier_dofs_;
+    mfem::Array<int> multiplier_to_edgedof_;
     mfem::Array<HYPRE_Int> multiplier_start_;
 
     std::unique_ptr<mfem::HypreParMatrix> multiplier_d_td_;

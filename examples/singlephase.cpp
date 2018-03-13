@@ -175,15 +175,17 @@ int main(int argc, char* argv[])
     auto& well_list = spe10problem.GetWells();
     auto& ess_edof_marker = spe10problem.GetEssentialEdgeDofsMarker();
 
-    unsigned int num_injector = 0;
+    int num_producer = 0;
     for (auto& well : well_list)
     {
-        if (well.GetType() == WellType::Injector)
-            num_injector++;
+        if (well.GetType() == WellType::Producer)
+            num_producer++;
     }
 
     // add one boundary attribute for edges connecting production wells to reservoir
-    if (num_injector < well_list.size())
+    int total_num_producer;
+    MPI_Allreduce(&num_producer, &total_num_producer, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+    if (total_num_producer > 0)
     {
         ess_attr.Append(0);
     }
@@ -425,7 +427,6 @@ void VisSetup(mfem::socketstream& sout, mfem::ParMesh& pmesh,
       sout << "keys c\n";         // show colorbar and mesh
    }
 }
-
 
 void Transport(SPE10Problem& spe10problem, const mfem::BlockVector& flow_sol,
                double delta_t, double total_time, bool visualize, int vis_step)

@@ -37,6 +37,9 @@ target_link_libraries(mltopo smoothg ${TPL_LIBRARIES})
 add_executable(singlephase singlephase.cpp)
 target_link_libraries(singlephase smoothg ${TPL_LIBRARIES})
 
+add_executable(dirichletpressure dirichletpressure.cpp)
+target_link_libraries(dirichletpressure smoothg ${TPL_LIBRARIES})
+
 # add tests
 configure_file(
   "${PROJECT_SOURCE_DIR}/examples/stest.py"
