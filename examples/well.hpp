@@ -506,7 +506,8 @@ void PartitionVerticesByMetis(
     const mfem::Array<int>& isolate_vertices,
     int num_partitions,
     mfem::Array<int>& partition,
-    int degree = 1)
+    int degree = 1,
+    bool use_edge_weight = false)
 {
     mfem::SparseMatrix e_v = smoothg::Transpose(vertex_edge);
     e_v.ScaleRows(edge_weight);
@@ -539,7 +540,7 @@ void PartitionVerticesByMetis(
 
     partitioner.SetPostIsolateVertices(isolate_vertices);
 
-    partitioner.doPartition(vert_vert, num_partitions, partition, true);
+    partitioner.doPartition(vert_vert, num_partitions, partition, use_edge_weight);
 }
 
 // extend edge_boundaryattr by adding empty rows corresponding to wells edges

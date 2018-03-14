@@ -227,8 +227,10 @@ int main(int argc, char* argv[])
     int nparts = std::max(vertex_edge.Height() / metis_coarsening_factor, 1);
 
     bool adaptive_part = false;
+    bool use_edge_weight = (nDimensions == 3);
     mfem::Array<int> partition;
-    PartitionVerticesByMetis(vertex_edge, weight, well_vertices, nparts, partition, adaptive_part);
+    PartitionVerticesByMetis(vertex_edge, weight, well_vertices, nparts,
+                             partition, adaptive_part, use_edge_weight);
 
     // Create Upscaler and Solve
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partition, *edge_d_td,
