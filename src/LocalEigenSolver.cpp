@@ -86,11 +86,9 @@ LocalEigenSolver::LocalEigenSolver(
 {
 }
 
-void LocalEigenSolver::AllocateWorkspace(int n, bool is_gev)
+void LocalEigenSolver::AllocateWorkspace(int n)
 {
     A_.resize(n * n, 0.0);
-    if (is_gev)
-        B_.resize(n * n, 0.0);
     n_max_ = n;
 
     int lwork = -1;
@@ -225,7 +223,14 @@ void LocalEigenSolver::Compute(
     }
 
     if (n_max_ < n)
-        AllocateWorkspace(n, true);
+    {
+        AllocateWorkspace(n);
+    }
+    const unsigned int n_sq = n * n;
+    if (B_.size() < n_sq)
+    {
+        B_.resize(n_sq, 0.0);
+    }
 
     // Compute Cholesky factorization of B = U^T * U
     std::copy(B.Data(), B.Data() + n * n, begin(B_));

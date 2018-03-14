@@ -104,7 +104,7 @@ public:
     ~LocalEigenSolver() = default;
 private:
     // Allocate workspace for LAPACK
-    void AllocateWorkspace(int n, bool is_gev = false);
+    void AllocateWorkspace(int n);
 
     std::vector<double*> EigenPairsSetSizeAndData(
         int size, int num_evects, mfem::Vector& evals, mfem::DenseMatrix& evects);
