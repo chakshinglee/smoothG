@@ -94,8 +94,8 @@ FiniteVolumeUpscale::FiniteVolumeUpscale(MPI_Comm comm,
 
         Dref.EliminateCols(marker);
 
-        coarse_solver_ = make_unique<MinresBlockSolverFalse>(comm, mixed_laplacians_.back(), remove_one_dof_);
-        coarse_solver_->SetMaxIter(50000);
+        coarse_solver_ = make_unique<MinresBlockSolverFalse>(comm, mixed_laplacians_.back(),
+                                                             remove_one_dof_);
     }
 
     MakeCoarseVectors();
@@ -148,6 +148,8 @@ FiniteVolumeUpscale::FiniteVolumeUpscale(MPI_Comm comm,
     MarkDofsOnBoundary(coarsener_->get_GraphTopology_ref().face_bdratt_,
                        coarsener_->construct_face_facedof_table(),
                        ess_attr, marker);
+
+    remove_one_dof_ = !(mixed_laplacians_.back().CheckW());
 
     if (hybridization) // Hybridization solver
     {
