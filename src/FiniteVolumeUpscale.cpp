@@ -94,8 +94,8 @@ FiniteVolumeUpscale::FiniteVolumeUpscale(MPI_Comm comm,
 
         Dref.EliminateCols(marker);
 
-        coarse_solver_ = make_unique<MinresBlockSolverFalse>(comm, mixed_laplacians_.back(),
-                                                             remove_one_dof_);
+        coarse_solver_ = make_unique<MinresBlockSolverFalse>(
+                    comm, mixed_laplacians_.back(), remove_one_dof_);
     }
 
     MakeCoarseVectors();

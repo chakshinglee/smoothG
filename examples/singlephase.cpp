@@ -103,7 +103,7 @@ int main(int argc, char* argv[])
     args.AddOption(&hybridization, "-hb", "--hybridization", "-no-hb",
                    "--no-hybridization", "Enable hybridization.");
     bool dual_target = false;
-    args.AddOption(&dual_target, "-dt", "--dual-target", "-no-dt",
+    args.AddOption(&dual_target, "-du", "--dual-target", "-no-du",
                    "--no-dual-target", "Use dual graph Laplacian in trace generation.");
     bool scaled_dual = false;
     args.AddOption(&scaled_dual, "-sd", "--scaled-dual", "-no-sd",
@@ -135,6 +135,8 @@ int main(int argc, char* argv[])
     args.AddOption(&well_shift, "-wsh", "--well-shift", "Shift well from corners");
     int nz = 15;
     args.AddOption(&nz, "-nz", "--num-z", "Num of slices in z direction for 3d run.");
+    int coarsening_factor = 100;
+    args.AddOption(&coarsening_factor, "-cf", "--coarsen-factor", "Coarsening factor");
     args.Parse();
     if (!args.Good())
     {
@@ -149,12 +151,6 @@ int main(int argc, char* argv[])
     {
         args.PrintOptions(std::cout);
     }
-
-    mfem::Array<int> coarseningFactor(nDimensions);
-    coarseningFactor[0] = 10;
-    coarseningFactor[1] = 10;
-    if (nDimensions == 3)
-        coarseningFactor[2] = 5;
 
     const int nbdr = 6;
     mfem::Array<int> ess_attr(nbdr);
@@ -221,11 +217,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    int metis_coarsening_factor = 1;
-    for (int d = 0; d < nDimensions; d++)
-        metis_coarsening_factor *= coarseningFactor[d];
-    int nparts = std::max(vertex_edge.Height() / metis_coarsening_factor, 1);
-
+    int nparts = std::max(vertex_edge.Height() / coarsening_factor, 1);
     bool adaptive_part = false;
     bool use_edge_weight = (nDimensions == 3) && (nz > 1);
     mfem::Array<int> partition;
