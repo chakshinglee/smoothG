@@ -68,7 +68,7 @@ void Upscale::Solve(const mfem::BlockVector& x, mfem::BlockVector& y) const
     assert(coarse_solver_);
 
     coarsener_->coarsen(x, *rhs_coarse_);
-//    rhs_coarse_->GetBlock(1) *= -1.0;
+    //    rhs_coarse_->GetBlock(1) *= -1.0;
 
     coarse_solver_->Solve(*rhs_coarse_, *sol_coarse_);
 
@@ -109,7 +109,7 @@ void Upscale::SolveCoarse(const mfem::BlockVector& x, mfem::BlockVector& y) cons
     assert(coarse_solver_);
 
     coarse_solver_->Solve(x, y);
-//    y *= -1.0;
+    //    y *= -1.0;
 }
 
 mfem::BlockVector Upscale::SolveCoarse(const mfem::BlockVector& x) const
@@ -147,7 +147,7 @@ void Upscale::SolveFine(const mfem::BlockVector& x, mfem::BlockVector& y) const
     assert(fine_solver_);
 
     fine_solver_->Solve(x, y);
-//    y *= -1.0;
+    //    y *= -1.0;
 
     if (remove_one_dof_)
     {

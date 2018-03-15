@@ -236,7 +236,7 @@ void WellManager::AddWell(const WellType type,
 mfem::SparseMatrix BuildReservoirGraph(const mfem::ParMesh& pmesh)
 {
     const mfem::Table& vertex_edge_table =
-            pmesh.Dimension() == 2 ? pmesh.ElementToEdgeTable() : pmesh.ElementToFaceTable();
+        pmesh.Dimension() == 2 ? pmesh.ElementToEdgeTable() : pmesh.ElementToFaceTable();
 
     return TableToMatrix(vertex_edge_table);
 }
@@ -430,8 +430,8 @@ shared_ptr<mfem::HypreParMatrix> IntegrateReservoirAndWellModels(
 }
 
 void RemoveWellDofs(const std::vector<Well>& well_list,
-                      const mfem::BlockVector& vec,
-                      mfem::Array<int>& offset, mfem::BlockVector& new_vec)
+                    const mfem::BlockVector& vec,
+                    mfem::Array<int>& offset, mfem::BlockVector& new_vec)
 {
     int num_well_cells = 0;
     for (const auto& well : well_list)
@@ -524,19 +524,19 @@ void PartitionVerticesByMetis(
         vert_vert_ext.Swap(tmp);
     }
 
-//    mfem::Array<int> connected_vertices;
-//    for (auto i : isolate_vertices)
-//    {
-//        GetTableRow(vert_vert_ext, i, connected_vertices);
+    //    mfem::Array<int> connected_vertices;
+    //    for (auto i : isolate_vertices)
+    //    {
+    //        GetTableRow(vert_vert_ext, i, connected_vertices);
 
-//        for (auto connection : connected_vertices)
-//        {
-//            if (connection != i)
-//            {
-//                partitioner.SetPostIsolateVertices(i);
-//            }
-//        }
-//    }
+    //        for (auto connection : connected_vertices)
+    //        {
+    //            if (connection != i)
+    //            {
+    //                partitioner.SetPostIsolateVertices(i);
+    //            }
+    //        }
+    //    }
 
     partitioner.SetPostIsolateVertices(isolate_vertices);
 
@@ -632,14 +632,14 @@ void ExtendEdgeBoundaryattr2(const std::vector<Well>& well_list,
         counter += num_cells;
     }
 
-//    for (int i = old_nnz; i < new_nnz; ++i)
-//    {
-//        printf("j %d: %d\n", i, new_j[i]);
-//    }
-//    for (int i = old_nedges; i < old_nedges + num_well_cells + 1; ++i)
-//    {
-//        printf("i %d: %d\n", i, new_i[i]);
-//    }
+    //    for (int i = old_nnz; i < new_nnz; ++i)
+    //    {
+    //        printf("j %d: %d\n", i, new_j[i]);
+    //    }
+    //    for (int i = old_nedges; i < old_nedges + num_well_cells + 1; ++i)
+    //    {
+    //        printf("i %d: %d\n", i, new_i[i]);
+    //    }
 
     assert(new_i[old_nedges + num_well_cells] == new_nnz);
 
@@ -751,16 +751,16 @@ public:
                                  WellManager& well_manager, int well_height,
                                  double injection_rate, double bottom_hole_pressure = 0.0);
     void setup_five_spot_pattern_center(const mfem::Array<int>& N, const int nDim,
-                                 WellManager& well_manager, int well_height,
-                                 double injection_rate, double bottom_hole_pressure = 0.0, double shift_in = 1.0);
+                                        WellManager& well_manager, int well_height,
+                                        double injection_rate, double bottom_hole_pressure = 0.0, double shift_in = 1.0);
     void setup_nine_spot_pattern(const mfem::Array<int>& N, const int nDim,
                                  WellManager& well_manager, int well_height,
                                  double injection_rate, double bottom_hole_pressure = 0.0);
     void setup_ten_spot_pattern(const mfem::Array<int>& N, const int nDim,
-                                 WellManager& well_manager, int well_height,
-                                 double injection_rate, double bottom_hole_pressure = 0.0);
+                                WellManager& well_manager, int well_height,
+                                double injection_rate, double bottom_hole_pressure = 0.0);
     void VisSetup(mfem::socketstream& vis_v, mfem::Vector vec, double range_min,
-                  double range_max, const std::string& caption="") const;
+                  double range_max, const std::string& caption = "") const;
     void VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const;
 private:
     unique_ptr<mfem::ParMesh> pmesh_;
@@ -817,7 +817,7 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
     IPF::ReadPermeabilityFile(permFile, MPI_COMM_WORLD);
 
     const int num_cell_z = (nDimensions == 2) ? 1 : nz;
-//    IPF::z_offset_ = std::min(84, std::max(84 - slice, 0));
+    //    IPF::z_offset_ = std::min(84, std::max(84 - slice, 0));
 
     auto mesh = make_unique<mfem::Mesh>(N[0], N[1], num_cell_z,
                                         mfem::Element::HEXAHEDRON, 1,
@@ -1007,8 +1007,8 @@ void SPE10Problem::setup_nine_spot_pattern(const mfem::Array<int>& N, const int 
 }
 
 void SPE10Problem::setup_ten_spot_pattern(const mfem::Array<int>& N, const int nDim,
-                                           WellManager& well_manager, int well_height,
-                                           double injection_rate, double bottom_hole_pressure)
+                                          WellManager& well_manager, int well_height,
+                                          double injection_rate, double bottom_hole_pressure)
 {
     if (nDim == 2)
     {
@@ -1227,8 +1227,8 @@ void SPE10Problem::setup_five_spot_pattern(const mfem::Array<int>& N, const int 
 }
 
 void SPE10Problem::setup_five_spot_pattern_center(const mfem::Array<int>& N, const int nDim,
-                                           WellManager& well_manager, int well_height,
-                                           double injection_rate, double bottom_hole_pressure, double shift_in)
+                                                  WellManager& well_manager, int well_height,
+                                                  double injection_rate, double bottom_hole_pressure, double shift_in)
 {
     if (nDim == 2)
     {

@@ -68,8 +68,9 @@ public:
        @param block_true_offsets describes parallel partitioning (@todo can this be inferred from the matrices?)
        @param use_W use the W block
     */
-    MinresBlockSolver(MPI_Comm comm, mfem::HypreParMatrix* M, mfem::HypreParMatrix* D, mfem::HypreParMatrix* W,
-        const mfem::Array<int>& block_true_offsets, bool remove_one_dof = true, bool use_W = false);
+    MinresBlockSolver(MPI_Comm comm, mfem::HypreParMatrix* M, mfem::HypreParMatrix* D,
+                      mfem::HypreParMatrix* W,
+                      const mfem::Array<int>& block_true_offsets, bool remove_one_dof = true, bool use_W = false);
 
     MinresBlockSolver(
         MPI_Comm comm, mfem::HypreParMatrix* M, mfem::HypreParMatrix* D,

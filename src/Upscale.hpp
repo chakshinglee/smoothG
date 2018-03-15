@@ -177,7 +177,8 @@ public:
 
 protected:
     Upscale(MPI_Comm comm, int size, bool hybridization = false)
-        : Operator(size), comm_(comm), setup_time_(0.0), hybridization_(hybridization), remove_one_dof_(true)
+        : Operator(size), comm_(comm), setup_time_(0.0), hybridization_(hybridization),
+          remove_one_dof_(true)
     {
         MPI_Comm_rank(comm_, &myid_);
     }

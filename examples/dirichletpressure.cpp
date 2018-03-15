@@ -172,7 +172,7 @@ int main(int argc, char* argv[])
 
     // Construct vertex_edge table in mfem::SparseMatrix format
     auto& vertex_edge_table = pmesh->Dimension() == 2 ?
-            pmesh->ElementToEdgeTable() : pmesh->ElementToFaceTable();
+                              pmesh->ElementToEdgeTable() : pmesh->ElementToFaceTable();
     mfem::SparseMatrix vertex_edge = TableToMatrix(vertex_edge_table);
 
     // Construct agglomerated topology based on METIS or Cartesion aggloemration
@@ -222,13 +222,13 @@ int main(int argc, char* argv[])
     double QoI = mfem::InnerProduct(comm, sol_fine.GetBlock(0), rhs_sigma_fine);
     if (myid == 0)
     {
-        std::cout<< "Fine level QoI = " << QoI << "\n";
+        std::cout << "Fine level QoI = " << QoI << "\n";
     }
 
     QoI = mfem::InnerProduct(comm, sol_upscaled.GetBlock(0), rhs_sigma_fine);
     if (myid == 0)
     {
-        std::cout<< "Coarse level QoI = " << QoI << "\n";
+        std::cout << "Coarse level QoI = " << QoI << "\n";
     }
 
     // Visualize the solution

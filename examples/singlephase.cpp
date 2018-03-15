@@ -44,19 +44,19 @@ using namespace smoothg;
 class FV_Evolution : public mfem::TimeDependentOperator
 {
 private:
-   const mfem::HypreParMatrix& K_;
-   mfem::Vector Minv_;
-   const mfem::Vector& b_;
+    const mfem::HypreParMatrix& K_;
+    mfem::Vector Minv_;
+    const mfem::Vector& b_;
 public:
-   FV_Evolution(const mfem::SparseMatrix& M, const mfem::HypreParMatrix& K,
-                const mfem::Vector& b);
-   virtual void Mult(const mfem::Vector &x, mfem::Vector &y) const;
-   virtual ~FV_Evolution() { }
+    FV_Evolution(const mfem::SparseMatrix& M, const mfem::HypreParMatrix& K,
+                 const mfem::Vector& b);
+    virtual void Mult(const mfem::Vector& x, mfem::Vector& y) const;
+    virtual ~FV_Evolution() { }
 };
 
 std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
-        const mfem::Vector& normal_flux, const mfem::SparseMatrix& elem_facet,
-        const mfem::HypreParMatrix& facet_truefacet);
+    const mfem::Vector& normal_flux, const mfem::SparseMatrix& elem_facet,
+    const mfem::HypreParMatrix& facet_truefacet);
 
 mfem::Vector Transport(const SPE10Problem& spe10problem, const mfem::BlockVector& normal_flux,
                        double delta_t, double total_time, int vis_step, const std::string& caption);
@@ -259,26 +259,26 @@ int main(int argc, char* argv[])
 
 FV_Evolution::FV_Evolution(const mfem::SparseMatrix& M, const mfem::HypreParMatrix& K,
                            const mfem::Vector& b)
-   : mfem::TimeDependentOperator(K.Height()), K_(K), b_(b)
+    : mfem::TimeDependentOperator(K.Height()), K_(K), b_(b)
 {
-   M.GetDiag(Minv_); // assume M is diagonal
-   for (int i = 0; i < Minv_.Size(); i++)
-   {
-       Minv_(i) = 1.0 / Minv_(i);
-   }
+    M.GetDiag(Minv_); // assume M is diagonal
+    for (int i = 0; i < Minv_.Size(); i++)
+    {
+        Minv_(i) = 1.0 / Minv_(i);
+    }
 }
 
-void FV_Evolution::Mult(const mfem::Vector &x, mfem::Vector &y) const
+void FV_Evolution::Mult(const mfem::Vector& x, mfem::Vector& y) const
 {
-   // y = M^{-1} (b - K x)
-   y = b_;
-   K_.Mult(-1.0, x, 1.0, y);
-   RescaleVector(Minv_, y);
+    // y = M^{-1} (b - K x)
+    y = b_;
+    K_.Mult(-1.0, x, 1.0, y);
+    RescaleVector(Minv_, y);
 }
 
 std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
-        const mfem::Vector& normal_flux, const mfem::SparseMatrix& elem_facet,
-        const mfem::HypreParMatrix& facet_truefacet)
+    const mfem::Vector& normal_flux, const mfem::SparseMatrix& elem_facet,
+    const mfem::HypreParMatrix& facet_truefacet)
 {
     MPI_Comm comm = facet_truefacet.GetComm();
     const int num_elems_diag = elem_facet.Height();
@@ -421,24 +421,24 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const mfem::BlockVector
     bool done = false;
     for (int ti = 0; !done; )
     {
-       double dt_real = std::min(delta_t, total_time - time);
-       ode_solver.Step(S, time, dt_real);
-       ti++;
+        double dt_real = std::min(delta_t, total_time - time);
+        ode_solver.Step(S, time, dt_real);
+        ti++;
 
-       done = (time >= total_time - 1e-8*delta_t);
+        done = (time >= total_time - 1e-8 * delta_t);
 
-       if (vis_step && (done || ti % vis_step == 0))
-       {
-          if (myid == 0)
-          {
-             std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
-          }
-          spe10problem.VisUpdate(sout, S);
-       }
+        if (vis_step && (done || ti % vis_step == 0))
+        {
+            if (myid == 0)
+            {
+                std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
+            }
+            spe10problem.VisUpdate(sout, S);
+        }
     }
     if (myid == 0)
     {
-       std::cout << "Time stepping done in " << chrono.RealTime() << "s.\n";
+        std::cout << "Time stepping done in " << chrono.RealTime() << "s.\n";
     }
 
     return S;

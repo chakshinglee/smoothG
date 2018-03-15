@@ -27,9 +27,10 @@ namespace smoothg
 {
 
 /// implementation largely lifted from ex5p.cpp
-MinresBlockSolver::MinresBlockSolver(MPI_Comm comm, mfem::HypreParMatrix* M, mfem::HypreParMatrix* D, mfem::HypreParMatrix* W,
-    const mfem::Array<int>& block_true_offsets,
-    bool remove_one_dof, bool use_W)
+MinresBlockSolver::MinresBlockSolver(MPI_Comm comm, mfem::HypreParMatrix* M,
+                                     mfem::HypreParMatrix* D, mfem::HypreParMatrix* W,
+                                     const mfem::Array<int>& block_true_offsets,
+                                     bool remove_one_dof, bool use_W)
     :
     MixedLaplacianSolver(block_true_offsets),
     minres_(comm),
@@ -118,8 +119,9 @@ void MinresBlockSolver::Init(mfem::HypreParMatrix* M, mfem::HypreParMatrix* D,
     minres_.iterative_mode = false;
 }
 
-MinresBlockSolver::MinresBlockSolver(MPI_Comm comm, mfem::HypreParMatrix* M, mfem::HypreParMatrix* D,
-    const mfem::Array<int>& block_true_offsets, bool remove_one_dof)
+MinresBlockSolver::MinresBlockSolver(MPI_Comm comm, mfem::HypreParMatrix* M,
+                                     mfem::HypreParMatrix* D,
+                                     const mfem::Array<int>& block_true_offsets, bool remove_one_dof)
     : MinresBlockSolver(comm, M, D, nullptr, block_true_offsets, remove_one_dof)
 {
 }
@@ -239,7 +241,8 @@ void MinresBlockSolver::Mult(const mfem::BlockVector& rhs,
 /**
    MinresBlockSolver acts on "true" dofs, this one does not.
 */
-MinresBlockSolverFalse::MinresBlockSolverFalse(MPI_Comm comm, const MixedMatrix& mgL, bool remove_one_dof)
+MinresBlockSolverFalse::MinresBlockSolverFalse(MPI_Comm comm, const MixedMatrix& mgL,
+                                               bool remove_one_dof)
     :
     MinresBlockSolver(comm, mgL, remove_one_dof),
     mixed_matrix_(mgL),
