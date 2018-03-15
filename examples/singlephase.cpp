@@ -58,11 +58,8 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
         const mfem::Vector& normal_flux, const mfem::SparseMatrix& elem_facet,
         const mfem::HypreParMatrix& facet_truefacet);
 
-void VisSetup(mfem::socketstream& sout, mfem::ParMesh& pmesh,
-              mfem::ParGridFunction& saturation, bool& visualization);
-
-void Transport(SPE10Problem& spe10problem, const mfem::BlockVector& normal_flux,
-               double delta_t, double total_time, bool visualize, int vis_step);
+mfem::Vector Transport(const SPE10Problem& spe10problem, const mfem::BlockVector& normal_flux,
+                       double delta_t, double total_time, int vis_step, const string& caption);
 
 int main(int argc, char* argv[])
 {
@@ -128,7 +125,7 @@ int main(int argc, char* argv[])
     args.AddOption(&well_height, "-wh", "--well-height", "Well Height.");
     double inject_rate = 0.3;
     args.AddOption(&inject_rate, "-ir", "--inject-rate", "Injector rate.");
-    double bottom_hole_pressure = 1.0;
+    double bottom_hole_pressure = 175.0;
     args.AddOption(&bottom_hole_pressure, "-bhp", "--bottom-hole-pressure",
                    "Bottom Hole Pressure.");
     double well_shift = 1.0;
@@ -157,7 +154,7 @@ int main(int argc, char* argv[])
     ess_attr = 1;
 
     // Setting up finite volume discretization problem
-    double scaled_inject = SPE10Problem::CellVolume(nDimensions) * inject_rate;
+    double scaled_inject = SPE10Problem::CellVolume() * inject_rate;
     printf("Inject: %.8f Scaled Inject: %.8f\n", inject_rate, scaled_inject);
     SPE10Problem spe10problem(permFile, nDimensions, spe10_scale, slice, ess_attr,
                               nz, well_height, scaled_inject, bottom_hole_pressure, well_shift);
@@ -239,18 +236,25 @@ int main(int argc, char* argv[])
     fvupscale.MakeFineSolver(ess_edof_marker);
     auto sol_fine = fvupscale.SolveFine(rhs_fine);
     fvupscale.ShowFineSolveInfo();
-    Transport(spe10problem, sol_fine, delta_t, total_time, visualization, vis_step);
+    auto S_fine = Transport(spe10problem, sol_fine, delta_t, total_time,
+                            vis_step, "Saturation based on fine scale flux");
 
     // Fine scale transport based on upscaled flux
-    auto sol_upscaled = fvupscale.Solve(rhs_fine);
-    fvupscale.ShowCoarseSolveInfo();
-    Transport(spe10problem, sol_upscaled, delta_t, total_time, visualization, vis_step);
+//    auto sol_upscaled = fvupscale.Solve(rhs_fine);
+//    fvupscale.ShowCoarseSolveInfo();
+//    auto S_upscaled = Transport(spe10problem, sol_upscaled, delta_t, total_time,
+//                                vis_step, "Saturation based on coarse scale flux");
 
-    auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
-    if (myid == 0)
-    {
-        ShowErrors(error_info);
-    }
+
+
+//    auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
+//    double sat_err = CompareError(comm, S_upscaled, S_fine);
+//    if (myid == 0)
+//    {
+//        std::cout << "Flow errors:\n";
+//        ShowErrors(error_info);
+//        std::cout << "Saturation errors: " << sat_err << "\n";
+//    }
 
     return EXIT_SUCCESS;
 }
@@ -381,69 +385,26 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
     return out;
 }
 
-void VisSetup(mfem::socketstream& sout, mfem::ParMesh& pmesh,
-              mfem::ParGridFunction& saturation, bool& visualization)
-{
-   char vishost[] = "localhost";
-   int  visport   = 19916;
-   sout.open(vishost, visport);
-   if (!sout)
-   {
-      if (pmesh.GetNRanks() == 0)
-         std::cout << "Unable to connect to GLVis server at "
-              << vishost << ':' << visport << std::endl;
-      visualization = false;
-      if (pmesh.GetNRanks() == 0)
-      {
-         std::cout << "GLVis visualization disabled.\n";
-      }
-   }
-   else
-   {
-      sout << "parallel " << pmesh.GetNRanks() << " " << pmesh.GetMyRank() << "\n";
-      sout.precision(8);
-      sout << "solution\n" << pmesh << saturation;
-      sout << "window_size 500 800\n";
-      sout << "window_title 'Saturation'\n";
-      sout << "autoscale off\n";
-      sout << "valuerange " << 0.0 << " " << 1.0 << "\n";
-
-//      if (pmesh.SpaceDimension() == 2)
-      {
-          sout << "view 0 0\n"; // view from top
-          sout << "keys jl\n";  // turn off perspective and light
-          sout << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
-      }
-//      else
-//      {
-//          sout << "keys ]]]]]]]]]]]]]\n";  // increase size
-//      }
-      sout << "keys c\n";         // show colorbar and mesh
-   }
-}
-
-void Transport(SPE10Problem& spe10problem, const mfem::BlockVector& flow_sol,
-               double delta_t, double total_time, bool visualize, int vis_step)
+mfem::Vector Transport(const SPE10Problem& spe10problem, const mfem::BlockVector& flow_sol,
+                       double delta_t, double total_time, int vis_step, const string& caption)
 {
     const mfem::Vector& normal_flux = flow_sol.GetBlock(0);
-    mfem::ParMesh* pmesh = spe10problem.GetParMesh();
     auto& vertex_edge = spe10problem.GetVertexEdge();
     auto edge_d_td = spe10problem.GetEdgeToTrueEdge();
 
     auto Adv = DiscreteAdvection(normal_flux, vertex_edge, *edge_d_td);
     mfem::SparseMatrix M = SparseIdentity(Adv->Height());
-    M *= spe10problem.CellVolume(pmesh->SpaceDimension());
+    M *= spe10problem.CellVolume();
 
     mfem::Vector influx(spe10problem.GetVertexRHS());
     influx *= -1.0;
     mfem::Vector S = influx;
     S = 0.0;
 
-    mfem::ParGridFunction saturation(spe10problem.GetVertexFES(), S.GetData());
     mfem::socketstream sout;
-    if (visualize)
+    if (vis_step)
     {
-        VisSetup(sout, *pmesh, saturation, visualize);
+        spe10problem.VisSetup(sout, S, 0.0, 1.0, caption);
     }
 
     double time = 0.0;
@@ -457,6 +418,8 @@ void Transport(SPE10Problem& spe10problem, const mfem::BlockVector& flow_sol,
     mfem::ForwardEulerSolver ode_solver;
     ode_solver.Init(adv);
 
+    int myid;
+    MPI_Comm_rank(edge_d_td->GetComm(), &myid);
     bool done = false;
     for (int ti = 0; !done; )
     {
@@ -466,26 +429,19 @@ void Transport(SPE10Problem& spe10problem, const mfem::BlockVector& flow_sol,
 
        done = (time >= total_time - 1e-8*delta_t);
 
-       if (done || ti % vis_step == 0)
+       if (vis_step && (done || ti % vis_step == 0))
        {
-          if (pmesh->GetMyRank() == 0)
+          if (myid == 0)
           {
              std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
           }
-
-          // 11. Extract the parallel grid function corresponding to the finite
-          //     element approximation U (the local solution on each processor).
-          saturation.MakeRef(spe10problem.GetVertexFES(), S.GetData());
-
-          if (visualize)
-          {
-             sout << "parallel " << pmesh->GetNRanks() << " " << pmesh->GetMyRank() << "\n";
-             sout << "solution\n" << *pmesh << saturation << std::flush;
-          }
+          spe10problem.VisUpdate(sout, S);
        }
     }
-    if (pmesh->GetMyRank() == 0)
+    if (myid == 0)
     {
        std::cout << "Time stepping done in " << chrono.RealTime() << "s.\n";
     }
+
+    return S;
 }

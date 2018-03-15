@@ -705,43 +705,31 @@ public:
     {
         InversePermeabilityFunction::ClearMemory();
     }
-    mfem::ParMesh* GetParMesh()
-    {
-        return pmesh_.get();
-    }
-    const std::vector<int>& GetNumProcsXYZ()
+    const std::vector<int>& GetNumProcsXYZ() const
     {
         return num_procs_xyz_;
     }
-    static double CellVolume(int nDimensions)
+    static double CellVolume()
     {
         return (20.0 * 10.0 * 2.0);// (nDimensions == 2 ) ? (20.0 * 10.0) : (20.0 * 10.0 * 2.0);
-    }
-    mfem::ParFiniteElementSpace* GetEdgeFES()
-    {
-        return sigmafespace_.get();
-    }
-    mfem::ParFiniteElementSpace* GetVertexFES()
-    {
-        return ufespace_.get();
     }
 
     mfem::SparseMatrix& GetVertexEdge() { return vertex_edge_; }
     const mfem::SparseMatrix& GetVertexEdge() const { return vertex_edge_; }
 
-    shared_ptr<mfem::HypreParMatrix> GetEdgeToTrueEdge()
+    const shared_ptr<mfem::HypreParMatrix> GetEdgeToTrueEdge() const
     {
         return edge_d_td_;
     }
-    const mfem::Vector& GetWeight()
+    const mfem::Vector& GetWeight() const
     {
         return weight_;
     }
-    const mfem::Vector& GetEdgeRHS()
+    const mfem::Vector& GetEdgeRHS() const
     {
         return rhs_sigma_;
     }
-    const mfem::Vector& GetVertexRHS()
+    const mfem::Vector& GetVertexRHS() const
     {
         return rhs_u_;
     }
@@ -749,18 +737,15 @@ public:
     {
         return well_manager_->GetWells();
     }
-    const mfem::SparseMatrix& GetEdgeBoundaryAttributeTable()
+    const mfem::SparseMatrix& GetEdgeBoundaryAttributeTable() const
     {
         return edge_bdr_att_;
     }
-
-    const mfem::Array<int>& GetEssentialEdgeDofsMarker()
+    const mfem::Array<int>& GetEssentialEdgeDofsMarker() const
     {
         return ess_edof_marker_;
     }
     void PrintMeshWithPartitioning(mfem::Array<int>& partition);
-
-    void VisualizeSolution(int k, const mfem::BlockVector& interp_sol);
 
     void setup_five_spot_pattern(const mfem::Array<int>& N, const int nDim,
                                  WellManager& well_manager, int well_height,
@@ -774,6 +759,9 @@ public:
     void setup_ten_spot_pattern(const mfem::Array<int>& N, const int nDim,
                                  WellManager& well_manager, int well_height,
                                  double injection_rate, double bottom_hole_pressure = 0.0);
+    void VisSetup(mfem::socketstream& vis_v, mfem::Vector vec, double range_min,
+                  double range_max, const std::string& caption="") const;
+    void VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const;
 private:
     unique_ptr<mfem::ParMesh> pmesh_;
     unique_ptr<WellManager> well_manager_;
@@ -796,6 +784,8 @@ private:
 
     mfem::SparseMatrix edge_bdr_att_;
     mfem::Array<int> ess_edof_marker_;
+
+    mutable mfem::ParGridFunction ufespace_gf_;
 
     int myid_;
 };
@@ -1331,7 +1321,6 @@ void SPE10Problem::setup_five_spot_pattern_center(const mfem::Array<int>& N, con
     }
 }
 
-
 void SPE10Problem::PrintMeshWithPartitioning(mfem::Array<int>& partition)
 {
     std::stringstream fname;
@@ -1341,10 +1330,53 @@ void SPE10Problem::PrintMeshWithPartitioning(mfem::Array<int>& partition)
     pmesh_->PrintWithPartitioning(partition.GetData(), ofid, 1);
 }
 
-//void SPE10Problem::VisualizeSolution(int k, const mfem::BlockVector& interp_sol)
-//{
-//    mfem::Array<int> offset;
-//    mfem::BlockVector vis_vec;
-//    remove_well_dofs(well_manager_->GetWells(), interp_sol, offset, vis_vec);
-//    smoothg::VisualizeSolution(k, sigmafespace_.get(), ufespace_.get(), vis_vec);
-//}
+void SPE10Problem::VisSetup(mfem::socketstream& vis_v, mfem::Vector vec, double range_min,
+                            double range_max, const std::string& caption) const
+{
+    ufespace_gf_.MakeRef(ufespace_.get(), vec.GetData());
+
+    const char vishost[] = "localhost";
+    const int  visport   = 19916;
+    vis_v.open(vishost, visport);
+    vis_v.precision(8);
+
+    vis_v << "parallel " << pmesh_->GetNRanks() << " " << myid_ << "\n";
+    vis_v << "solution\n" << *pmesh_ << ufespace_gf_;
+    vis_v << "window_size 500 800\n";
+    vis_v << "window_title 'vertex space unknown'\n";
+    vis_v << "autoscale off\n"; // update value-range; keep mesh-extents fixed
+    vis_v << "valuerange " << range_min << " " << range_max <<
+          "\n"; // update value-range; keep mesh-extents fixed
+
+    vis_v << "view 0 0\n"; // view from top
+    vis_v << "keys jl\n";  // turn off perspective and light
+    vis_v << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
+
+    vis_v << "keys c\n";         // show colorbar and mesh
+    //vis_v << "pause\n"; // Press space to play!
+
+    if (!caption.empty())
+    {
+        vis_v << "plot_caption '" << caption << "'\n";
+    }
+
+    MPI_Barrier(pmesh_->GetComm());
+
+    vis_v << "keys S\n";         //Screenshot
+
+    MPI_Barrier(pmesh_->GetComm());
+}
+
+void SPE10Problem::VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const
+{
+    ufespace_gf_.MakeRef(ufespace_.get(), vec.GetData());
+
+    vis_v << "parallel " << pmesh_->GetNRanks() << " " << myid_ << "\n";
+    vis_v << "solution\n" << *pmesh_ << ufespace_gf_;
+
+    MPI_Barrier(pmesh_->GetComm());
+
+    vis_v << "keys S\n";         //Screenshot
+
+    MPI_Barrier(pmesh_->GetComm());
+}
