@@ -59,7 +59,7 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
         const mfem::HypreParMatrix& facet_truefacet);
 
 mfem::Vector Transport(const SPE10Problem& spe10problem, const mfem::BlockVector& normal_flux,
-                       double delta_t, double total_time, int vis_step, const string& caption);
+                       double delta_t, double total_time, int vis_step, const std::string& caption);
 
 int main(int argc, char* argv[])
 {
@@ -240,21 +240,19 @@ int main(int argc, char* argv[])
                             vis_step, "Saturation based on fine scale flux");
 
     // Fine scale transport based on upscaled flux
-//    auto sol_upscaled = fvupscale.Solve(rhs_fine);
-//    fvupscale.ShowCoarseSolveInfo();
-//    auto S_upscaled = Transport(spe10problem, sol_upscaled, delta_t, total_time,
-//                                vis_step, "Saturation based on coarse scale flux");
+    auto sol_upscaled = fvupscale.Solve(rhs_fine);
+    fvupscale.ShowCoarseSolveInfo();
+    auto S_upscaled = Transport(spe10problem, sol_upscaled, delta_t, total_time,
+                                vis_step, "Saturation based on coarse scale flux");
 
-
-
-//    auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
-//    double sat_err = CompareError(comm, S_upscaled, S_fine);
-//    if (myid == 0)
-//    {
-//        std::cout << "Flow errors:\n";
-//        ShowErrors(error_info);
-//        std::cout << "Saturation errors: " << sat_err << "\n";
-//    }
+    auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
+    double sat_err = CompareError(comm, S_upscaled, S_fine);
+    if (myid == 0)
+    {
+        std::cout << "Flow errors:\n";
+        ShowErrors(error_info);
+        std::cout << "Saturation errors: " << sat_err << "\n";
+    }
 
     return EXIT_SUCCESS;
 }
@@ -386,7 +384,7 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
 }
 
 mfem::Vector Transport(const SPE10Problem& spe10problem, const mfem::BlockVector& flow_sol,
-                       double delta_t, double total_time, int vis_step, const string& caption)
+                       double delta_t, double total_time, int vis_step, const std::string& caption)
 {
     const mfem::Vector& normal_flux = flow_sol.GetBlock(0);
     auto& vertex_edge = spe10problem.GetVertexEdge();
