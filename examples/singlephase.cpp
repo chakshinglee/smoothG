@@ -108,19 +108,14 @@ int main(int argc, char* argv[])
     bool energy_dual = false;
     args.AddOption(&energy_dual, "-ed", "--energy-dual", "-no-ed",
                    "--no-energy-dual", "Use energy matrix in trace generation.");
-    bool visualization = false;
-    args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
-                   "--no-visualization", "Enable visualization.");
     double delta_t = 1.0;
     args.AddOption(&delta_t, "-dt", "--delta-t", "Time step.");
     double total_time = 1000.0;
     args.AddOption(&total_time, "-time", "--total-time", "Total time to step.");
-    int vis_step = 10;
-    args.AddOption(&vis_step, "-vs", "--vis-step",
-                   "Step size for visualization.");
+    int vis_step = 0;
+    args.AddOption(&vis_step, "-vs", "--vis-step", "Step size for visualization.");
     int write_step = 0;
-    args.AddOption(&write_step, "-ws", "--write-step",
-                   "Step size for writing data to file.");
+    args.AddOption(&write_step, "-ws", "--write-step", "Step size for writing data to file.");
     int well_height = 1;
     args.AddOption(&well_height, "-wh", "--well-height", "Well Height.");
     double inject_rate = 0.3;
@@ -214,12 +209,18 @@ int main(int argc, char* argv[])
         }
     }
 
-    int nparts = std::max(vertex_edge.Height() / coarsening_factor, 1);
-    bool adaptive_part = false;
-    bool use_edge_weight = (nDimensions == 3) && (nz > 1);
     mfem::Array<int> partition;
-    PartitionVerticesByMetis(vertex_edge, weight, well_vertices, nparts,
-                             partition, adaptive_part, use_edge_weight);
+//    int nparts = std::max(vertex_edge.Height() / coarsening_factor, 1);
+//    bool adaptive_part = false;
+//    bool use_edge_weight = (nDimensions == 3) && (nz > 1);
+//    PartitionVerticesByMetis(vertex_edge, weight, well_vertices, nparts,
+//                             partition, adaptive_part, use_edge_weight);
+
+    mfem::Array<int> geo_coarsening_factor(3);
+    geo_coarsening_factor[0] = 10;
+    geo_coarsening_factor[1] = 10;
+    geo_coarsening_factor[2] = nDimensions == 3 ? 5 : 1;
+    spe10problem.CartPart(partition, geo_coarsening_factor);
 
     // Create Upscaler and Solve
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partition, *edge_d_td,

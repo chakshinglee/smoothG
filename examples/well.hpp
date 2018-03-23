@@ -762,6 +762,8 @@ public:
     void VisSetup(mfem::socketstream& vis_v, mfem::Vector vec, double range_min,
                   double range_max, const std::string& caption = "") const;
     void VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const;
+    void CartPart(mfem::Array<int>& partitioning,
+                  const mfem::Array<int>& coarsening_factor) const;
 private:
     unique_ptr<mfem::ParMesh> pmesh_;
     unique_ptr<WellManager> well_manager_;
@@ -810,6 +812,10 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
     h(1) = 10.0;
     h(2) = 2.0;
 
+    num_procs_xyz_.resize(3, 1);
+    num_procs_xyz_[0] = std::sqrt(num_procs);
+    num_procs_xyz_[1] = std::sqrt(num_procs);
+
     using IPF = InversePermeabilityFunction;
 
     IPF::SetNumberCells(N[0], N[1], N[2]);
@@ -819,11 +825,13 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
     const int num_cell_z = (nDimensions == 2) ? 1 : nz;
     //    IPF::z_offset_ = std::min(84, std::max(84 - slice, 0));
 
-    auto mesh = make_unique<mfem::Mesh>(N[0], N[1], num_cell_z,
-                                        mfem::Element::HEXAHEDRON, 1,
-                                        h(0) * N[0], h(1) * N[1], h(2) * num_cell_z);
+    mfem::Mesh mesh(N[0], N[1], num_cell_z, mfem::Element::HEXAHEDRON, 1,
+                    h(0) * N[0], h(1) * N[1], h(2) * num_cell_z);
 
-    pmesh_  = make_unique<mfem::ParMesh>(comm, *mesh);
+    mfem::Array<int> partition(mesh.CartesianPartitioning(num_procs_xyz_.data()), mesh.GetNE());
+    partition.MakeDataOwner();
+
+    pmesh_  = make_unique<mfem::ParMesh>(comm, mesh, partition);
 
     if (myid_ == 0)
     {
@@ -861,7 +869,7 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
     rhs_u_.SetSize(vertex_edge_.Height());
     rhs_u_ = 0.0;
 
-    mesh->GetBoundingBox(bbmin_, bbmax_, 1);
+    mesh.GetBoundingBox(bbmin_, bbmax_, 1);
 
 
     // Build wells (Peaceman's five-spot pattern)
@@ -1174,7 +1182,6 @@ void SPE10Problem::setup_five_spot_pattern(const mfem::Array<int>& N, const int 
     point(1, 4) = ((bbmax_[1] - bbmin_[1]) / 2.0) + 1.0;
     point(2, 4) = bbmax_[2] - 1.0;
 
-
     for (int j = 0; j < well_height; ++j)
     {
 
@@ -1379,4 +1386,36 @@ void SPE10Problem::VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const
     vis_v << "keys S\n";         //Screenshot
 
     MPI_Barrier(pmesh_->GetComm());
+}
+
+void SPE10Problem::CartPart(mfem::Array<int>& partitioning,
+                            const mfem::Array<int>& coarsening_factor) const
+{
+    const int nDimensions = num_procs_xyz_.size();
+
+    mfem::Array<int> nxyz(nDimensions);
+    nxyz[0] = 60 / num_procs_xyz_[0] / coarsening_factor[0];
+    nxyz[1] = 220 / num_procs_xyz_[1] / coarsening_factor[1];
+    if (nDimensions == 3)
+        nxyz[2] = 1;//85 / num_procs_xyz_[2] / coarsening_factor[2];
+
+    for (int& i : nxyz)
+    {
+        i = std::max(1, i);
+    }
+
+    mfem::Array<int> cart_part(pmesh_->CartesianPartitioning(nxyz.GetData()),
+                               pmesh_->GetNE());
+    cart_part.MakeDataOwner();
+
+    partitioning.SetSize(vertex_edge_.Height());
+    for (int i = 0; i < cart_part.Size(); i++)
+    {
+        partitioning[i] = cart_part[i];
+    }
+    int num_parts = cart_part.Max()+1;
+    for (int i = cart_part.Size(); i < partitioning.Size(); i++)
+    {
+        partitioning[i] = num_parts++;
+    }
 }
