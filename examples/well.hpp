@@ -1397,7 +1397,7 @@ void SPE10Problem::CartPart(mfem::Array<int>& partitioning,
     nxyz[0] = 60 / num_procs_xyz_[0] / coarsening_factor[0];
     nxyz[1] = 220 / num_procs_xyz_[1] / coarsening_factor[1];
     if (nDimensions == 3)
-        nxyz[2] = 1;//85 / num_procs_xyz_[2] / coarsening_factor[2];
+        nxyz[2] = 85 / num_procs_xyz_[2] / coarsening_factor[2];
 
     for (int& i : nxyz)
     {

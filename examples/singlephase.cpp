@@ -219,7 +219,7 @@ int main(int argc, char* argv[])
     mfem::Array<int> geo_coarsening_factor(3);
     geo_coarsening_factor[0] = 10;
     geo_coarsening_factor[1] = 10;
-    geo_coarsening_factor[2] = nDimensions == 3 ? 5 : 1;
+    geo_coarsening_factor[2] = nDimensions == 3 ? 5 : 85;
     spe10problem.CartPart(partition, geo_coarsening_factor);
 
     // Create Upscaler and Solve
