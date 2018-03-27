@@ -210,17 +210,17 @@ int main(int argc, char* argv[])
     }
 
     mfem::Array<int> partition;
-//    int nparts = std::max(vertex_edge.Height() / coarsening_factor, 1);
-//    bool adaptive_part = false;
-//    bool use_edge_weight = (nDimensions == 3) && (nz > 1);
-//    PartitionVerticesByMetis(vertex_edge, weight, well_vertices, nparts,
-//                             partition, adaptive_part, use_edge_weight);
+    int nparts = std::max(vertex_edge.Height() / coarsening_factor, 1);
+    bool adaptive_part = false;
+    bool use_edge_weight = (nDimensions == 3) && (nz > 1);
+    PartitionVerticesByMetis(vertex_edge, weight, well_vertices, nparts,
+                             partition, adaptive_part, use_edge_weight);
 
-    mfem::Array<int> geo_coarsening_factor(3);
-    geo_coarsening_factor[0] = 10;
-    geo_coarsening_factor[1] = 10;
-    geo_coarsening_factor[2] = nDimensions == 3 ? 5 : 85;
-    spe10problem.CartPart(partition, geo_coarsening_factor);
+//    mfem::Array<int> geo_coarsening_factor(3);
+//    geo_coarsening_factor[0] = 10;
+//    geo_coarsening_factor[1] = 11;
+//    geo_coarsening_factor[2] = nDimensions == 3 ? 2 : nz;
+//    spe10problem.CartPart(partition, nz, geo_coarsening_factor);
 
     // Create Upscaler and Solve
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partition, *edge_d_td,

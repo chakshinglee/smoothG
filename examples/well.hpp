@@ -762,7 +762,7 @@ public:
     void VisSetup(mfem::socketstream& vis_v, mfem::Vector vec, double range_min,
                   double range_max, const std::string& caption = "") const;
     void VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const;
-    void CartPart(mfem::Array<int>& partitioning,
+    void CartPart(mfem::Array<int>& partitioning, int nz,
                   const mfem::Array<int>& coarsening_factor) const;
 private:
     unique_ptr<mfem::ParMesh> pmesh_;
@@ -1388,7 +1388,7 @@ void SPE10Problem::VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const
     MPI_Barrier(pmesh_->GetComm());
 }
 
-void SPE10Problem::CartPart(mfem::Array<int>& partitioning,
+void SPE10Problem::CartPart(mfem::Array<int>& partitioning, int nz,
                             const mfem::Array<int>& coarsening_factor) const
 {
     const int nDimensions = num_procs_xyz_.size();
@@ -1397,7 +1397,7 @@ void SPE10Problem::CartPart(mfem::Array<int>& partitioning,
     nxyz[0] = 60 / num_procs_xyz_[0] / coarsening_factor[0];
     nxyz[1] = 220 / num_procs_xyz_[1] / coarsening_factor[1];
     if (nDimensions == 3)
-        nxyz[2] = 85 / num_procs_xyz_[2] / coarsening_factor[2];
+        nxyz[2] = nz / num_procs_xyz_[2] / coarsening_factor[2];
 
     for (int& i : nxyz)
     {
