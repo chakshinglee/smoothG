@@ -717,9 +717,9 @@ public:
     mfem::SparseMatrix& GetVertexEdge() { return vertex_edge_; }
     const mfem::SparseMatrix& GetVertexEdge() const { return vertex_edge_; }
 
-    const shared_ptr<mfem::HypreParMatrix> GetEdgeToTrueEdge() const
+    const mfem::HypreParMatrix& GetEdgeToTrueEdge() const
     {
-        return edge_d_td_;
+        return *edge_d_td_;
     }
     const mfem::Vector& GetWeight() const
     {

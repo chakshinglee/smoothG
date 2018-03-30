@@ -175,6 +175,8 @@ public:
     void ShowErrors(const mfem::BlockVector& upscaled_sol,
                     const mfem::BlockVector& fine_sol) const;
 
+    const mfem::SparseMatrix GetPu() const;
+
 protected:
     Upscale(MPI_Comm comm, int size, bool hybridization = false)
         : Operator(size), comm_(comm), setup_time_(0.0), hybridization_(hybridization),

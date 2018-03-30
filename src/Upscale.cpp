@@ -533,4 +533,9 @@ double Upscale::GetSetupTime() const
     return setup_time_;
 }
 
+const mfem::SparseMatrix Upscale::GetPu() const
+{
+    return coarsener_->get_Pu();
+}
+
 } // namespace smoothg

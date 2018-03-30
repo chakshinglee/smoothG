@@ -403,6 +403,9 @@ void LocalMixedGraphSpectralTargets::ComputeVertexTargets(
         // Apply SVD to the restricted vectors (first vector is always kept)
         evects_restricted.GetColumn(0, first_evect);
         Orthogonalize(evects_restricted, first_evect, 1, local_vertex_targets[iAgg]);
+        mfem::Vector first_evect_ref;
+        local_vertex_targets[iAgg].GetColumnReference(0, first_evect_ref);
+        first_evect_ref = 1.0;
 
         // Compute edge trace samples (before restriction and SVD)
         if (!dual_target_ || use_w || max_evects_ == 1)
@@ -686,10 +689,10 @@ void LocalMixedGraphSpectralTargets::ComputeEdgeTargets(
 
                 // set up an average zero vector (so no need to Normalize)
                 OneNegOne.SetSize(nvertex_local_dofs);
-                double Dsigma = 1.0 / nvertex_neighbor0;
+                double Dsigma = -1.0 / nvertex_neighbor0;
                 for (int i = 0; i < nvertex_neighbor0; i++)
                     OneNegOne(i) = Dsigma;
-                Dsigma = -1.0 / Dloc_1.Height();
+                Dsigma = 1.0 / Dloc_1.Height();
                 for (int i = nvertex_neighbor0; i < nvertex_local_dofs; i++)
                     OneNegOne(i) = Dsigma;
 
@@ -761,10 +764,10 @@ void LocalMixedGraphSpectralTargets::ComputeEdgeTargets(
 
                 // set up an average zero vector (so no need to Normalize)
                 OneNegOne.SetSize(nvertex_local_dofs);
-                double Dsigma = 1.0 / nvertex_neighbor0;
+                double Dsigma = -1.0 / nvertex_neighbor0;
                 for (int i = 0; i < nvertex_neighbor0; i++)
                     OneNegOne(i) = Dsigma;
-                Dsigma = -1.0 / (nvertex_local_dofs - nvertex_neighbor0);
+                Dsigma = 1.0 / (nvertex_local_dofs - nvertex_neighbor0);
                 for (int i = nvertex_neighbor0; i < nvertex_local_dofs; i++)
                     OneNegOne(i) = Dsigma;
 
@@ -779,7 +782,7 @@ void LocalMixedGraphSpectralTargets::ComputeEdgeTargets(
             {
                 // global boundary face or only 1 dof on face
                 PV_sigma_on_face.SetSize(num_iface_edge_dof);
-                PV_sigma_on_face = 1.;
+                PV_sigma_on_face = -1.;
             }
 
             // add PV vector to other vectors and orthogonalize
