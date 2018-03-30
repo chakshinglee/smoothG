@@ -245,15 +245,16 @@ int main(int argc, char* argv[])
                             vis_step, "saturation based on fine scale flux", Fine);
 
     // Fine scale transport based on upscaled flux
-
     mfem::BlockVector rhs_coarse = fvupscale.Coarsen(rhs_fine);
     auto sol_coarse = fvupscale.SolveCoarse(rhs_coarse);
     auto sol_upscaled = fvupscale.Interpolate(sol_coarse);
     fvupscale.ShowCoarseSolveInfo();
+
     auto S_upscaled = Transport(spe10problem, fvupscale, sol_upscaled, delta_t, total_time,
                                 vis_step, "saturation based on coarse scale flux", Fine);
 
-    fvupscale.ShowCoarseSolveInfo();
+    // Coarse scale transport based on upscaled flux
+
     auto S_coarse = Transport(spe10problem, fvupscale, sol_coarse, delta_t, total_time,
                               vis_step, "saturation based on coarse scale flux", Coarse);
 
