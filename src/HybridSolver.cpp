@@ -251,7 +251,7 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
 
     // Mark the multiplier dof with essential BC
     // Note again there is a 1-1 map from multipliers to edge dofs on faces
-    ess_multiplier_bc_ = false;
+    bool ess_mult_bc_loc = false;
     if (face_bdrattr && ess_edge_dofs)
     {
         ess_multiplier_dofs_.SetSize(num_multiplier_dofs_);
@@ -262,13 +262,13 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
             if (edgedof_bdrattr.RowSize(i) && !ess_edge_dofs->operator[](i))
             {
                 ess_multiplier_dofs_[i] = 1;
-                ess_multiplier_bc_ = true;
+                ess_mult_bc_loc = true;
             }
             else
                 ess_multiplier_dofs_[i] = 0;
         }
-
     }
+    MPI_Allreduce(&ess_mult_bc_loc, &ess_multiplier_bc_, 1, MPI_LOGICAL, MPI_LAND, comm_);
 
     if (ess_multiplier_bc_)
     {
