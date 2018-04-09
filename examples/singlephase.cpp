@@ -65,6 +65,12 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
                        double total_time, int vis_step,
                        const std::string& caption, Level level);
 
+mfem::Vector Transport2(const SPE10Problem& spe10problem, const Upscale& up,
+                       const mfem::BlockVector& normal_flux, double delta_t,
+                       double total_time, int vis_step,
+                       const std::string& caption, Level level);
+
+mfem::Array<int> well_vertices;
 int main(int argc, char* argv[])
 {
     int num_procs, myid;
@@ -103,13 +109,13 @@ int main(int argc, char* argv[])
     bool hybridization = false;
     args.AddOption(&hybridization, "-hb", "--hybridization", "-no-hb",
                    "--no-hybridization", "Enable hybridization.");
-    bool dual_target = false;
+    bool dual_target = true;
     args.AddOption(&dual_target, "-du", "--dual-target", "-no-du",
                    "--no-dual-target", "Use dual graph Laplacian in trace generation.");
-    bool scaled_dual = false;
+    bool scaled_dual = true;
     args.AddOption(&scaled_dual, "-sd", "--scaled-dual", "-no-sd",
                    "--no-scaled-dual", "Scale dual graph Laplacian by (inverse) edge weight.");
-    bool energy_dual = false;
+    bool energy_dual = true;
     args.AddOption(&energy_dual, "-ed", "--energy-dual", "-no-ed",
                    "--no-energy-dual", "Use energy matrix in trace generation.");
     double delta_t = 1.0;
@@ -182,7 +188,6 @@ int main(int argc, char* argv[])
         ess_attr.Append(0);
     }
 
-    mfem::Array<int> well_vertices;
     int num_well_cells = 0;
     for (auto& well : well_list)
     {
@@ -199,6 +204,7 @@ int main(int argc, char* argv[])
 
             well_vertices.Append(vertices);
         }
+        well_vertices.Print();
     }
 
     std::vector<int> wells(num_procs, 0);
@@ -214,17 +220,17 @@ int main(int argc, char* argv[])
     }
 
     mfem::Array<int> partition;
-//    int nparts = std::max(vertex_edge.Height() / coarsening_factor, 1);
-//    bool adaptive_part = false;
-//    bool use_edge_weight = (nDimensions == 3) && (nz > 1);
-//    PartitionVerticesByMetis(vertex_edge, weight, well_vertices, nparts,
-//                             partition, adaptive_part, use_edge_weight);
+    int nparts = std::max(vertex_edge.Height() / coarsening_factor, 1);
+    bool adaptive_part = false;
+    bool use_edge_weight = (nDimensions == 3) && (nz > 1);
+    PartitionVerticesByMetis(vertex_edge, weight, well_vertices, nparts,
+                             partition, adaptive_part, use_edge_weight);
 
     mfem::Array<int> geo_coarsening_factor(3);
-    geo_coarsening_factor[0] = 10;
-    geo_coarsening_factor[1] = 11;
-    geo_coarsening_factor[2] = nDimensions == 3 ? 2 : nz;
-    spe10problem.CartPart(partition, nz, geo_coarsening_factor);
+    geo_coarsening_factor[0] = 5;
+    geo_coarsening_factor[1] = 5;
+    geo_coarsening_factor[2] = nDimensions == 3 ? 1 : nz;
+    spe10problem.CartPart(partition, nz, geo_coarsening_factor, well_vertices);
 
     // Create Upscaler and Solve
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partition, edge_d_td,
@@ -258,14 +264,28 @@ int main(int argc, char* argv[])
     auto S_coarse = Transport(spe10problem, fvupscale, sol_coarse, delta_t, total_time,
                               vis_step, "saturation based on coarse scale flux", Coarse);
 
+//    auto S_coarse2 = Transport2(spe10problem, fvupscale, sol_upscaled, delta_t, total_time,
+//                              vis_step, "saturation based on coarse scale flux", Coarse);
+
+    auto S_coarse2 = Transport2(spe10problem, fvupscale, sol_upscaled,
+                               delta_t, total_time, vis_step,
+                               "saturation based on coarse scale flux coarse time step", Coarse);
+
+//    auto S_fine2 = Transport2(spe10problem, fvupscale, sol_fine,
+//                               delta_t, total_time, vis_step,
+//                               "saturation based on fine scale flux coarse time step", Coarse);
+
     auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
     double sat_err = CompareError(comm, S_upscaled, S_fine);
     double sat_err2 = CompareError(comm, S_coarse, S_fine);
+    double sat_err3 = CompareError(comm, S_coarse2, S_fine);
+//    double sat_err4 = CompareError(comm, S_fine2, S_fine);
     if (myid == 0)
     {
         std::cout << "Flow errors:\n";
         ShowErrors(error_info);
-        std::cout << "Saturation errors: " << sat_err << ", " << sat_err2 << "\n";
+        std::cout << "Saturation errors: " << sat_err << ", " << sat_err2 //<< "\n";
+                  << " " << sat_err3 << " " << sat_err3 << "\n";
     }
 
     return EXIT_SUCCESS;
@@ -326,55 +346,39 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
         {
             const int* elem_pair = f_tf_e_diag.GetRowColumns(ifacet);
 
-            if (normal_flux_i > 0)
-            {
-                diag.Set(elem_pair[0], elem_pair[1], -1.0 * normal_flux_i);
-                diag.Add(elem_pair[1], elem_pair[1], normal_flux_i);
-            }
-            else
-            {
-                diag.Set(elem_pair[1], elem_pair[0], normal_flux_i);
-                diag.Add(elem_pair[0], elem_pair[0], -1.0 * normal_flux_i);
-            }
+            diag.Set(elem_pair[0], elem_pair[1], -(fabs(normal_flux_i) + normal_flux_i) / 2);
+            diag.Add(elem_pair[1], elem_pair[1], (fabs(normal_flux_i) + normal_flux_i) / 2);
+            diag.Set(elem_pair[1], elem_pair[0], -(fabs(normal_flux_i) - normal_flux_i) / 2);
+            diag.Add(elem_pair[0], elem_pair[0], (fabs(normal_flux_i) - normal_flux_i) / 2);
         }
         else
         {
-            assert(f_tf_e_diag.RowSize(ifacet) == 1);
             const int diag_elem = f_tf_e_diag.GetRowColumns(ifacet)[0];
 
-            if (f_tf_e_offd.RowSize(ifacet) == 1) // facet is shared
+            if (f_tf_e_offd.RowSize(ifacet) > 0) // facet is shared
             {
+                assert(f_tf_e_offd.RowSize(ifacet) == 1);
                 const int offd_elem = f_tf_e_offd.GetRowColumns(ifacet)[0];
 
                 if (f_tf_diag.RowSize(ifacet) > 0) // facet is owned by local proc
                 {
-                    if (normal_flux_i > 0)
-                    {
-                        offd.Set(diag_elem, offd_elem, -1.0 * normal_flux_i);
-                    }
-                    else
-                    {
-                        diag.Add(diag_elem, diag_elem, -1.0 * normal_flux_i);
-                    }
+                    diag.Set(diag_elem, offd_elem, -(fabs(normal_flux_i) + normal_flux_i) / 2);
+                    diag.Add(diag_elem, diag_elem, (fabs(normal_flux_i) - normal_flux_i) / 2);
                 }
                 else // facet is owned by the neighbor proc
                 {
-                    if (normal_flux_i > 0)
-                    {
-                        diag.Add(diag_elem, diag_elem, normal_flux_i);
-                    }
-                    else
-                    {
-                        offd.Set(diag_elem, offd_elem, normal_flux_i);
-                    }
+                    diag.Add(diag_elem, diag_elem, (fabs(normal_flux_i) + normal_flux_i) / 2);
+                    diag.Set(diag_elem, offd_elem, -(fabs(normal_flux_i) - normal_flux_i) / 2);
                 }
             }
-            else  // global boundary
+            else if (f_tf_e_diag.RowSize(ifacet) == 1) // global boundary
             {
-                if (normal_flux_i < 0)
-                {
-                    diag.Add(diag_elem, diag_elem, -1.0 * normal_flux_i);
-                }
+                diag.Add(diag_elem, diag_elem, (fabs(normal_flux_i) - normal_flux_i) / 2);
+            }
+            else
+            {
+                assert(f_tf_e_diag.RowSize(ifacet) == 0);
+                assert(f_tf_e_offd.RowSize(ifacet) == 0);
             }
         }
     }
@@ -397,11 +401,15 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
     return out;
 }
 
+mfem::socketstream sout;
+int option = 0;
+bool setup = true;
 mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
                        const mfem::BlockVector& flow_sol, double delta_t,
                        double total_time, int vis_step,
                        const std::string& caption, Level level)
 {
+    option++;
     const mfem::Vector& normal_flux = flow_sol.GetBlock(0);
     mfem::SparseMatrix vertex_edge;
     mfem::HypreParMatrix edge_d_td;
@@ -423,6 +431,157 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
     }
     full_caption += caption;
 
+    int myid;
+    MPI_Comm_rank(edge_d_td.GetComm(), &myid);
+
+    mfem::StopWatch chrono;
+    chrono.Clear();
+    chrono.Start();
+
+    auto Adv = DiscreteAdvection(normal_flux, vertex_edge, edge_d_td);
+//    if (myid == 0)
+//    {
+//        std::cout << "Advection matrix assembled in " << chrono.RealTime() << "s.\n";
+//    }
+
+    chrono.Clear();
+    chrono.Start();
+    mfem::SparseMatrix M = SparseIdentity(spe10problem.GetVertexRHS().Size());
+    M *= spe10problem.CellVolume();
+    if (level == Coarse)
+    {
+        unique_ptr<mfem::SparseMatrix> M_c(mfem::RAP(up.GetPu(), M, up.GetPu()));
+        M.Swap(*M_c);
+    }
+//    if (myid == 0)
+//    {
+//        std::cout << "Mass matrix assembled in " << chrono.RealTime() << "s.\n";
+//    }
+//    if (level == Fine)
+//    {
+//        mfem::SparseMatrix diag;
+//        Adv->GetDiag(diag);auto yo = smoothg::Transpose(diag); yo.Print();
+//    }
+
+    influx *= -1.0;
+    mfem::Vector S = influx;
+    S = 0.0;
+
+    chrono.Clear();
+    chrono.Start();
+
+    mfem::Vector S_vis;
+    if (level == Fine)
+    {
+        S_vis.SetDataAndSize(S.GetData(), S.Size());
+    }
+    else
+    {
+        S_vis.SetSize(spe10problem.GetVertexRHS().Size());
+    }
+
+    if (vis_step && setup)
+    {
+        if (level == Coarse)
+        {
+            up.Interpolate(S, S_vis);
+        }
+        spe10problem.VisSetup(sout, S_vis, 0.0, 1.0, caption);
+//        setup = false;
+    }
+
+    double time = 0.0;
+
+
+    FV_Evolution adv(M, *Adv, influx);
+    adv.SetTime(time);
+
+    mfem::ForwardEulerSolver ode_solver;
+    ode_solver.Init(adv);
+
+    std::vector<mfem::Vector> sats(well_vertices.Size(), mfem::Vector(total_time/delta_t+2));
+    for (unsigned int i = 0; i < sats.size(); i++)
+    {
+        sats[i] = 0.0;
+    }
+
+    bool done = false;
+    for (int ti = 0; !done; )
+    {
+        double dt_real = std::min(delta_t, total_time - time);
+        ode_solver.Step(S, time, dt_real);
+        ti++;
+
+//        for (unsigned int i = 0; i < sats.size(); i++)
+//        {
+//            if (level == Coarse)
+//            {
+//                up.Interpolate(S, S_vis);
+//                sats[i](ti) = S_vis(well_vertices[i]);
+//            }
+//            else
+//            {
+//                sats[i](ti) = S(well_vertices[i]);
+//            }
+//        }
+
+        done = (time >= total_time - 1e-8 * delta_t);
+
+        if (vis_step && (done || ti % vis_step == 0))
+        {
+            if (myid == 0)
+            {
+                std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
+            }
+            if (level == Coarse)
+            {
+                up.Interpolate(S, S_vis);
+            }
+            spe10problem.VisUpdate(sout, S_vis);
+        }
+    }
+    if (myid == 0)
+    {
+        std::cout << "Time stepping done in " << chrono.RealTime() << "s.\n";
+        std::cout << "Size of discrete saturation space: " << Adv->N() << "\n";
+    }
+
+    if (level == Coarse)
+    {
+        up.Interpolate(S, S_vis);
+        S = S_vis;
+    }
+
+    for (unsigned int i = 0; i < sats.size(); i++)
+    {
+        std::ofstream ofs("sat_prod_"+std::to_string(i)+"_"+std::to_string(myid)
+                          +"_"+std::to_string(option)+".txt");
+        sats[i].Print(ofs, 1);
+    }
+
+    return S;
+}
+
+mfem::Vector Transport2(const SPE10Problem& spe10problem, const Upscale& up,
+                       const mfem::BlockVector& flow_sol, double delta_t,
+                       double total_time, int vis_step,
+                       const std::string& caption, Level level)
+{
+    option++;
+    const mfem::Vector& normal_flux = flow_sol.GetBlock(0);
+    mfem::SparseMatrix vertex_edge;
+    mfem::HypreParMatrix edge_d_td;
+    mfem::Vector influx;
+    std::string full_caption;
+
+        vertex_edge.MakeRef(spe10problem.GetVertexEdge());
+        edge_d_td.MakeRef(spe10problem.GetEdgeToTrueEdge());
+
+        influx = up.Coarsen(spe10problem.GetVertexRHS());
+        full_caption = "Coarse scale ";
+
+    full_caption += caption;
+
     auto Adv = DiscreteAdvection(normal_flux, vertex_edge, edge_d_td);
     mfem::SparseMatrix M = SparseIdentity(spe10problem.GetVertexRHS().Size());
     M *= spe10problem.CellVolume();
@@ -431,6 +590,22 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
         unique_ptr<mfem::SparseMatrix> M_c(mfem::RAP(up.GetPu(), M, up.GetPu()));
         M.Swap(*M_c);
     }
+
+    auto PuT = smoothg::Transpose(up.GetPu());
+
+    mfem::Array<int> starts;
+    GenerateOffsets(edge_d_td.GetComm(), PuT.Height(), starts);
+
+    unique_ptr<mfem::HypreParMatrix> PAdv(Adv->LeftDiagMult(PuT, starts));
+    unique_ptr<mfem::HypreParMatrix> AdvP(PAdv->Transpose());
+    unique_ptr<mfem::HypreParMatrix> Adv_c_T(AdvP->LeftDiagMult(PuT, starts));
+    unique_ptr<mfem::HypreParMatrix> Adv_c(Adv_c_T->Transpose());
+
+//    if (level == Coarse)
+//    {
+//        mfem::SparseMatrix diag;
+//        Adv_c->GetDiag(diag);auto yo = smoothg::Transpose(diag); yo.Print();
+//    }
 
     influx *= -1.0;
     mfem::Vector S = influx;
@@ -461,11 +636,17 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
     mfem::StopWatch chrono;
     chrono.Start();
 
-    FV_Evolution adv(M, *Adv, influx);
+    FV_Evolution adv(M, *Adv_c, influx);
     adv.SetTime(time);
 
     mfem::ForwardEulerSolver ode_solver;
     ode_solver.Init(adv);
+
+    std::vector<mfem::Vector> sats(well_vertices.Size(), mfem::Vector(total_time/delta_t+2));
+    for (unsigned int i = 0; i < sats.size(); i++)
+    {
+        sats[i] = 0.0;
+    }
 
     int myid;
     MPI_Comm_rank(edge_d_td.GetComm(), &myid);
@@ -475,6 +656,19 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
         double dt_real = std::min(delta_t, total_time - time);
         ode_solver.Step(S, time, dt_real);
         ti++;
+
+//        for (unsigned int i = 0; i < sats.size(); i++)
+//        {
+//            if (level == Coarse)
+//            {
+//                up.Interpolate(S, S_vis);
+//                sats[i](ti) = S_vis(well_vertices[i]);
+//            }
+//            else
+//            {
+//                sats[i](ti) = S(well_vertices[i]);
+//            }
+//        }
 
         done = (time >= total_time - 1e-8 * delta_t);
 
@@ -501,5 +695,13 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
         up.Interpolate(S, S_vis);
         S = S_vis;
     }
+
+    for (unsigned int i = 0; i < sats.size(); i++)
+    {
+        std::ofstream ofs("sat_prod_"+std::to_string(i)+"_"+std::to_string(myid)
+                          +"_"+std::to_string(option)+".txt");
+        sats[i].Print(ofs, 1);
+    }
+
     return S;
 }
