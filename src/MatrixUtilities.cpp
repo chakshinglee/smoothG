@@ -1062,4 +1062,16 @@ std::unique_ptr<mfem::HypreParMatrix> BuildEntityToTrueEntity(
     return unique_ptr<mfem::HypreParMatrix>(out);
 }
 
+mfem::Vector ExtractRowVector(const mfem::SparseMatrix& mat, int i)
+{
+    mfem::Vector out(mat.Width());
+    out = 0.0;
+
+    for (int j = mat.GetI()[i]; j < mat.GetI()[i+1]; j++)
+    {
+        out(mat.GetJ()[j]) = mat.GetData()[j];
+    }
+    return out;
+}
+
 } // namespace smoothg

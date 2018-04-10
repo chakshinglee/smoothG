@@ -176,6 +176,7 @@ public:
                     const mfem::BlockVector& fine_sol) const;
 
     const mfem::SparseMatrix& GetPu() const;
+    const mfem::SparseMatrix& GetPsigma() const;
 
 protected:
     Upscale(MPI_Comm comm, int size, bool hybridization = false)

@@ -538,4 +538,9 @@ const mfem::SparseMatrix& Upscale::GetPu() const
     return coarsener_->get_Pu();
 }
 
+const mfem::SparseMatrix& Upscale::GetPsigma() const
+{
+    return coarsener_->get_Psigma();
+}
+
 } // namespace smoothg

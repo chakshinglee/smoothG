@@ -387,6 +387,8 @@ double InnerProduct(const mfem::Vector& u, const mfem::Vector& v);
 std::unique_ptr<mfem::HypreParMatrix> BuildEntityToTrueEntity(
     const mfem::HypreParMatrix& entity_trueentity_entity);
 
+mfem::Vector ExtractRowVector(const mfem::SparseMatrix& mat, int i);
+
 } // namespace smoothg
 
 #endif /* __MATRIXUTILITIES_HPP__ */
