@@ -178,6 +178,39 @@ public:
     const mfem::SparseMatrix& GetPu() const;
     const mfem::SparseMatrix& GetPsigma() const;
 
+    const std::vector<mfem::DenseMatrix>& GetTraces() const
+    {
+        return ((const SpectralAMG_MGL_Coarsener&) (*coarsener_)).GetTraces();
+    }
+
+    const mfem::SparseMatrix& GetFaceToFaceDof() const
+    {
+        return  ((const SpectralAMG_MGL_Coarsener&) (*coarsener_)).GetFaceToFaceDof();
+    }
+
+    const mfem::SparseMatrix& GetAggFace() const
+    {
+        auto& topo = ((const SpectralAMG_MGL_Coarsener&) (*coarsener_)).get_GraphTopology_ref();
+        return topo.Agg_face_;
+    }
+
+    const mfem::SparseMatrix& GetFaceEdge() const
+    {
+        auto& topo = ((const SpectralAMG_MGL_Coarsener&) (*coarsener_)).get_GraphTopology_ref();
+        return topo.face_edge_;
+    }
+
+    const mfem::HypreParMatrix& GetFaceTrueFace() const
+    {
+        auto& topo = ((const SpectralAMG_MGL_Coarsener&) (*coarsener_)).get_GraphTopology_ref();
+        return *(topo.face_d_td_);
+    }
+
+    const std::vector<std::vector<double> >& GetCoarseToFineNormalFlip() const
+    {
+        return c2f_normal_flip_;
+    }
+
 protected:
     Upscale(MPI_Comm comm, int size, bool hybridization = false)
         : Operator(size), comm_(comm), setup_time_(0.0), hybridization_(hybridization),
@@ -213,6 +246,7 @@ protected:
     mutable std::unique_ptr<MixedLaplacianSolver> fine_solver_;
 
     bool remove_one_dof_; // whether the 1st dof of 2nd block should be eliminated
+    std::vector<std::vector<double> >  c2f_normal_flip_;
 
 private:
     void SetOperator(const mfem::Operator& op) {};

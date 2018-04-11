@@ -64,6 +64,16 @@ public:
                               bool energy_dual,
                               bool is_hybridization_used);
 
+    const std::vector<mfem::DenseMatrix>& GetTraces() const
+    {
+        return local_edge_traces_;
+    }
+
+    const mfem::SparseMatrix& GetFaceToFaceDof() const
+    {
+        return face_facedof_table_;
+    }
+
 private:
     /**
        @brief Coarsen the graph, constructing projectors, coarse operators, etc.
@@ -77,6 +87,8 @@ private:
     bool dual_target_;
     bool scaled_dual_;
     bool energy_dual_;
+
+    std::vector<mfem::DenseMatrix> local_edge_traces_;
 
 }; // SpectralAMG_MGL_Coarsener
 
