@@ -252,7 +252,6 @@ int main(int argc, char* argv[])
                                 Fine, "saturation based on coarse scale flux", CoarseAdv::Upwind);
 
     // Coarse scale transport based on upscaled flux
-
     auto S_coarse = Transport(spe10problem, fvupscale, sol_coarse, delta_t, total_time, vis_step,
                               Coarse, "saturation based on coarse scale flux", CoarseAdv::Upwind);
 
@@ -263,7 +262,7 @@ int main(int argc, char* argv[])
                                Coarse, "saturation based on coarse scale flux", CoarseAdv::RAP);
 
     auto S_coarse3 = Transport(spe10problem, fvupscale, sol_coarse, delta_t, total_time, vis_step,
-                               Coarse, "saturation based on fine scale flux coarse time step", CoarseAdv::FastRAP);
+                               Coarse, "saturation based on fine scale flux", CoarseAdv::FastRAP);
 
     auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
     double sat_err = CompareError(comm, S_upscaled, S_fine);
@@ -308,11 +307,14 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
     const int num_elems_diag = elem_facet.Height();
     const int num_facets = elem_facet.Width();
 
+    int myid; MPI_Comm_rank(comm, &myid);
+
     mfem::Array<int> elem_starts;
     GenerateOffsets(comm, num_elems_diag, elem_starts);
 
     using ParMatPtr = std::unique_ptr<mfem::HypreParMatrix>;
     ParMatPtr elem_truefacet(facet_truefacet.LeftDiagMult(elem_facet, elem_starts));
+
     ParMatPtr truefacet_elem(elem_truefacet->Transpose());
     ParMatPtr facet_truefacet_elem(mfem::ParMult(&facet_truefacet, truefacet_elem.get()));
 
@@ -465,6 +467,7 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
 
     mfem::StopWatch chrono;
     chrono.Clear();
+    MPI_Barrier(edge_d_td.GetComm());
     chrono.Start();
 
     unique_ptr<mfem::HypreParMatrix> Adv;
@@ -489,13 +492,12 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
     {
         Adv = DiscreteAdvection(normal_flux, vertex_edge, edge_d_td, &up);
     }
+    MPI_Barrier(edge_d_td.GetComm());
     if (myid == 0)
     {
         std::cout << "Advection matrix assembled in " << chrono.RealTime() << "s.\n";
     }
 
-    chrono.Clear();
-    chrono.Start();
     mfem::SparseMatrix M = SparseIdentity(spe10problem.GetVertexRHS().Size());
     M *= spe10problem.CellVolume();
     if (level == Coarse)
@@ -503,16 +505,13 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
         unique_ptr<mfem::SparseMatrix> M_c(mfem::RAP(up.GetPu(), M, up.GetPu()));
         M.Swap(*M_c);
     }
-    if (myid == 0)
-    {
-        std::cout << "Mass matrix assembled in " << chrono.RealTime() << "s.\n";
-    }
 
     influx *= -1.0;
     mfem::Vector S = influx;
     S = 0.0;
 
     chrono.Clear();
+    MPI_Barrier(edge_d_td.GetComm());
     chrono.Start();
 
     mfem::Vector S_vis;
@@ -532,7 +531,7 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
             up.Interpolate(S, S_vis);
         }
         spe10problem.VisSetup(sout, S_vis, 0.0, 1.0, caption);
-//        setup = false;
+        setup = false;
     }
 
     double time = 0.0;
@@ -585,6 +584,7 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
             spe10problem.VisUpdate(sout, S_vis);
         }
     }
+    MPI_Barrier(edge_d_td.GetComm());
     if (myid == 0)
     {
         std::cout << "Time stepping done in " << chrono.RealTime() << "s.\n";
