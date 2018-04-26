@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
         const auto rhs_u_fine = upscale.ReadVertexVector(rhs_filename);
 
         // Do work at Coarse Level
-        auto rhs_u_coarse = upscale.Coarsen(rhs_u_fine);
+        auto rhs_u_coarse = upscale.Restrict(rhs_u_fine);
         auto sol_u_coarse = upscale.SolveCoarse(rhs_u_coarse);
 
         // If multiple iterations, reuse vector
@@ -165,9 +165,11 @@ int main(int argc, char* argv[])
 
 #if SMOOTHG_USE_SAAMGE
         SAAMGeParam saamge_param;
+        const bool coarse_coefficient = false;
         const auto hbsa_upscale = GraphUpscale(comm, vertex_edge, coarse_factor,
                                                spect_tol, max_evects, dual_target,
                                                scaled_dual, energy_dual, use_hybridization,
+                                               coarse_coefficient,
                                                mfem::Vector(), &saamge_param);
 
         const auto hbsa_sol = hbsa_upscale.Solve(rhs_u_fine);

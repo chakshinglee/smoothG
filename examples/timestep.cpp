@@ -74,6 +74,9 @@ int main(int argc, char* argv[])
     args.AddOption(&metis_agglomeration, "-ma", "--metis-agglomeration",
                    "-nm", "--no-metis-agglomeration",
                    "Use Metis as the partitioner (instead of geometric).");
+    double proc_part_ubal = 2.0;
+    args.AddOption(&proc_part_ubal, "-pub", "--part-unbalance",
+                   "Processor partition unbalance factor.");
     int spe10_scale = 5;
     args.AddOption(&spe10_scale, "-sc", "--spe10-scale",
                    "Scale of problem, 1=small, 5=full SPE10.");
@@ -92,7 +95,7 @@ int main(int argc, char* argv[])
     double initial_val = 1.0;
     args.AddOption(&initial_val, "-iv", "--initial-value",
                    "Initial pressure difference.");
-    int vis_step = 100;
+    int vis_step = 0;
     args.AddOption(&vis_step, "-vs", "--vis_step",
                    "Step size for visualization.");
     int k = 1;
@@ -157,7 +160,7 @@ int main(int argc, char* argv[])
 
     // Setting up finite volume discretization problem
     SPE10Problem spe10problem(permFile, nDimensions, spe10_scale, slice,
-                              metis_agglomeration, coarseningFactor);
+                              metis_agglomeration, proc_part_ubal, coarseningFactor);
     mfem::ParMesh* pmesh = spe10problem.GetParMesh();
 
     for (int i = 0; i < num_refine; ++i)
@@ -256,21 +259,18 @@ int main(int argc, char* argv[])
 
         if (k == 0)
         {
-            mfem::Array<int> marker(fvupscale.GetFineMatrix().getD().Width());
-            marker = 0;
-            sigmafespace.GetEssentialVDofs(ess_attr, marker);
-            fvupscale.MakeFineSolver(marker);
+            fvupscale.MakeFineSolver();
 
             work_rhs = fine_rhs;
             work_u = fine_u;
         }
         else
         {
-            fvupscale.Coarsen(fine_u, work_u);
-            fvupscale.Coarsen(fine_rhs, work_rhs);
+            fvupscale.Restrict(fine_u, work_u);
+            fvupscale.Restrict(fine_rhs, work_rhs);
         }
 
-        const mfem::SparseMatrix* W = fvupscale.GetMatrix(k).getW();
+        const mfem::SparseMatrix* W = fvupscale.GetMatrix(k).GetW();
         assert(W);
 
         // Setup visualization

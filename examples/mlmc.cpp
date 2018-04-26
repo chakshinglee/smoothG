@@ -14,13 +14,15 @@
  ***********************************************************************EHEADER*/
 
 /**
-   @file finitevolume.cpp
+   @file mlmc.cpp
+
    @brief This is an example for upscaling a graph Laplacian coming from a finite
-   volume discretization of a simple reservior model in parallel.
+   volume discretization of a simple reservior model, where we change coefficients
+   in the model without re-coarsening.
 
    A simple way to run the example:
 
-   mpirun -n 4 ./finitevolume
+   ./mlmc --perm spe_perm.dat
 */
 
 #include <fstream>
@@ -34,6 +36,65 @@
 #include "../src/smoothG.hpp"
 
 using namespace smoothg;
+
+class SimpleSampler
+{
+public:
+    SimpleSampler(int fine_size, int coarse_size) :
+        fine_size_(fine_size), coarse_size_(coarse_size)
+    {
+        fine_.SetSize(fine_size_);
+        coarse_.SetSize(coarse_size_);
+    }
+
+    mfem::Vector& GetFineCoefficient(int sample)
+    {
+        fine_ = (1.0 + sample);
+        return fine_;
+    }
+
+    mfem::Vector& GetCoarseCoefficient(int sample)
+    {
+        coarse_ = (1.0 + sample);
+        return coarse_;
+    }
+
+private:
+    int fine_size_;
+    int coarse_size_;
+
+    mfem::Vector fine_;
+    mfem::Vector coarse_;
+};
+
+void Visualize(const mfem::Vector& sol, mfem::ParGridFunction& field,
+               const mfem::ParMesh& pmesh, int tag)
+{
+    char vishost[] = "localhost";
+    int  visport   = 19916;
+
+    mfem::socketstream vis_v;
+    vis_v.open(vishost, visport);
+    vis_v.precision(8);
+
+    field = sol;
+
+    vis_v << "parallel " << pmesh.GetNRanks() << " " << pmesh.GetMyRank() << "\n";
+    vis_v << "solution\n" << pmesh << field;
+    vis_v << "window_size 500 800\n";
+    vis_v << "window_title 'pressure" << tag << "'\n";
+    vis_v << "autoscale values\n";
+
+    if (pmesh.Dimension() == 2)
+    {
+        vis_v << "view 0 0\n"; // view from top
+        vis_v << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
+    }
+
+    vis_v << "keys cjl\n";
+
+    MPI_Barrier(pmesh.GetComm());
+};
 
 int main(int argc, char* argv[])
 {
@@ -67,9 +128,6 @@ int main(int argc, char* argv[])
     args.AddOption(&metis_agglomeration, "-ma", "--metis-agglomeration",
                    "-nm", "--no-metis-agglomeration",
                    "Use Metis as the partitioner (instead of geometric).");
-    double proc_part_ubal = 2.0;
-    args.AddOption(&proc_part_ubal, "-pub", "--part-unbalance",
-                   "Processor partition unbalance factor.");
     int spe10_scale = 5;
     args.AddOption(&spe10_scale, "-sc", "--spe10-scale",
                    "Scale of problem, 1=small, 5=full SPE10.");
@@ -88,6 +146,9 @@ int main(int argc, char* argv[])
     bool visualization = false;
     args.AddOption(&visualization, "-vis", "--visualization", "-no-vis",
                    "--no-visualization", "Enable visualization.");
+    bool elem_mass = false;
+    args.AddOption(&elem_mass, "-el-mass", "--element-mass", "-no-el-mass",
+                   "--no-element-mass", "Store M in element matrices format.");
     args.Parse();
     if (!args.Good())
     {
@@ -123,9 +184,11 @@ int main(int argc, char* argv[])
 
     mfem::Array<int> ess_attr;
     mfem::Vector weight;
+    std::vector<mfem::Vector> local_weight;
     mfem::Vector rhs_u_fine;
 
     // Setting up finite volume discretization problem
+    const double proc_part_ubal = 2.0;
     SPE10Problem spe10problem(permFile, nDimensions, spe10_scale, slice,
                               metis_agglomeration, proc_part_ubal, coarseningFactor);
 
@@ -142,20 +205,39 @@ int main(int argc, char* argv[])
     for (int i(0); i < nbdr; ++i)
         ess_attr[i] = ess_zeros[i];
 
-    // Construct "finite volume mass" matrix using mfem instead of parelag
+    // Construct "finite volume mass" matrix using mfem
     mfem::RT_FECollection sigmafec(0, nDimensions);
     mfem::ParFiniteElementSpace sigmafespace(pmesh, &sigmafec);
-
-    mfem::ParBilinearForm a(&sigmafespace);
-    a.AddDomainIntegrator(
-        new FiniteVolumeMassIntegrator(*spe10problem.GetKInv()) );
-    a.Assemble();
-    a.Finalize();
-    a.SpMat().GetDiag(weight);
-
-    for (int i = 0; i < weight.Size(); ++i)
     {
-        weight[i] = 1.0 / weight[i];
+        mfem::ParBilinearForm a(&sigmafespace);
+        a.AddDomainIntegrator(
+            new FiniteVolumeMassIntegrator(*spe10problem.GetKInv()) );
+
+        if (elem_mass == false)
+        {
+            a.Assemble();
+            a.Finalize();
+            a.SpMat().GetDiag(weight);
+            for (int i = 0; i < weight.Size(); ++i)
+            {
+                weight[i] = 1.0 / weight[i];
+            }
+        }
+        else
+        {
+            local_weight.resize(pmesh->GetNE());
+            mfem::DenseMatrix M_el_i;
+            for (int i = 0; i < pmesh->GetNE(); i++)
+            {
+                a.ComputeElementMatrix(i, M_el_i);
+                mfem::Vector& local_weight_i = local_weight[i];
+                local_weight_i.SetSize(M_el_i.Height());
+                for (int j = 0; j < local_weight_i.Size(); j++)
+                {
+                    local_weight_i[j] = 1.0 / M_el_i(j, j);
+                }
+            }
+        }
     }
 
     mfem::L2_FECollection ufec(0, nDimensions);
@@ -189,67 +271,65 @@ int main(int argc, char* argv[])
     auto edge_boundary_att = GenerateBoundaryAttributeTable(pmesh);
 
     // Create Upscaler and Solve
-    FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partitioning, *edge_d_td,
-                                  edge_boundary_att, ess_attr, spect_tol, max_evects,
-                                  dual_target, scaled_dual, energy_dual, hybridization);
+    unique_ptr<FiniteVolumeMLMC> fvupscale;
+    if (elem_mass == false)
+    {
+        fvupscale = make_unique<FiniteVolumeMLMC>(
+                        comm, vertex_edge, weight, partitioning, *edge_d_td,
+                        edge_boundary_att, ess_attr, spect_tol, max_evects,
+                        dual_target, scaled_dual, energy_dual, hybridization);
+    }
+    else
+    {
+        fvupscale = make_unique<FiniteVolumeMLMC>(
+                        comm, vertex_edge, local_weight, partitioning, *edge_d_td,
+                        edge_boundary_att, ess_attr, spect_tol, max_evects,
+                        dual_target, scaled_dual, energy_dual, hybridization);
+    }
 
-    fvupscale.MakeFineSolver();
+    fvupscale->PrintInfo();
+    fvupscale->ShowSetupTime();
+    fvupscale->MakeFineSolver();
 
-    fvupscale.PrintInfo();
-    fvupscale.ShowSetupTime();
-
-    mfem::BlockVector rhs_fine(fvupscale.GetFineBlockVector());
+    mfem::BlockVector rhs_fine(fvupscale->GetFineBlockVector());
     rhs_fine.GetBlock(0) = 0.0;
     rhs_fine.GetBlock(1) = rhs_u_fine;
 
-    auto sol_upscaled = fvupscale.Solve(rhs_fine);
-    fvupscale.ShowCoarseSolveInfo();
+    const int num_fine_vertices = vertex_edge.Height();
+    const int num_aggs = partitioning.Max() + 1; // this can be wrong if there are empty partitions
+    SimpleSampler sampler(num_fine_vertices, num_aggs);
 
-    auto sol_fine = fvupscale.SolveFine(rhs_fine);
-    fvupscale.ShowFineSolveInfo();
-
-    auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
-
-    if (myid == 0)
+    const int num_samples = 3;
+    for (int sample = 0; sample < num_samples; ++sample)
     {
-        ShowErrors(error_info);
-    }
+        if (myid == 0)
+            std::cout << "---\nSample " << sample << "\n---" << std::endl;
 
-    // Visualize the solution
-    if (visualization)
-    {
-        mfem::ParGridFunction field(&ufespace);
+        auto coarse_coefficient = sampler.GetCoarseCoefficient(sample);
+        fvupscale->RescaleCoarseCoefficient(coarse_coefficient);
+        auto sol_upscaled = fvupscale->Solve(rhs_fine);
+        fvupscale->ShowCoarseSolveInfo();
 
-        auto Visualize = [&](const mfem::Vector & sol)
+        auto fine_coefficient = sampler.GetFineCoefficient(sample);
+        fvupscale->RescaleFineCoefficient(fine_coefficient);
+        auto sol_fine = fvupscale->SolveFine(rhs_fine);
+        fvupscale->ShowFineSolveInfo();
+
+        auto error_info = fvupscale->ComputeErrors(sol_upscaled, sol_fine);
+
+        if (myid == 0)
         {
-            char vishost[] = "localhost";
-            int  visport   = 19916;
+            ShowErrors(error_info);
+        }
 
-            mfem::socketstream vis_v;
-            vis_v.open(vishost, visport);
-            vis_v.precision(8);
+        // Visualize the solution
+        if (visualization)
+        {
+            mfem::ParGridFunction field(&ufespace);
 
-            field = sol;
-
-            vis_v << "parallel " << pmesh->GetNRanks() << " " << pmesh->GetMyRank() << "\n";
-            vis_v << "solution\n" << *pmesh << field;
-            vis_v << "window_size 500 800\n";
-            vis_v << "window_title 'pressure'\n";
-            vis_v << "autoscale values\n";
-
-            if (nDimensions == 2)
-            {
-                vis_v << "view 0 0\n"; // view from top
-                vis_v << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
-            }
-
-            vis_v << "keys cjl\n";
-
-            MPI_Barrier(comm);
-        };
-
-        Visualize(sol_upscaled.GetBlock(1));
-        Visualize(sol_fine.GetBlock(1));
+            Visualize(sol_upscaled.GetBlock(1), field, *pmesh, sample);
+            Visualize(sol_fine.GetBlock(1), field, *pmesh, sample);
+        }
     }
 
     return EXIT_SUCCESS;

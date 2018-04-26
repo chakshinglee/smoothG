@@ -1359,22 +1359,22 @@ void SPE10Problem::VisSetup(mfem::socketstream& vis_v, mfem::Vector vec, double 
     vis_v << "view 0 0\n"; // view from top
     vis_v << "keys jl\n";  // turn off perspective and light
     vis_v << "keys ]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]\n";  // increase size
-//    vis_v << "keys i\n";  // see interior
-//    vis_v << "keys ]]]]]]]]]]]]]]]]]]]]\n";  // increase size
+    //    vis_v << "keys i\n";  // see interior
+    //    vis_v << "keys ]]]]]]]]]]]]]]]]]]]]\n";  // increase size
 
-//    vis_v << "keys c\n";         // show colorbar and mesh
+    //    vis_v << "keys c\n";         // show colorbar and mesh
     //vis_v << "pause\n"; // Press space to play!
 
-//    if (!caption.empty())
-//    {
-//        vis_v << "plot_caption '" << caption << "'\n";
-//    }
+    //    if (!caption.empty())
+    //    {
+    //        vis_v << "plot_caption '" << caption << "'\n";
+    //    }
 
     MPI_Barrier(pmesh_->GetComm());
 
-//    vis_v << "keys S\n";         //Screenshot
+    //    vis_v << "keys S\n";         //Screenshot
 
-//    MPI_Barrier(pmesh_->GetComm());
+    //    MPI_Barrier(pmesh_->GetComm());
 }
 
 void SPE10Problem::VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const
@@ -1417,13 +1417,13 @@ void SPE10Problem::CartPart(mfem::Array<int>& partitioning, int nz,
     {
         partitioning[i] = cart_part[i];
     }
-    int num_parts = cart_part.Max()+1;
+    int num_parts = cart_part.Max() + 1;
     for (int i = 0; i < isolated_vertices.Size(); i++)
     {
         partitioning[isolated_vertices[i]] = num_parts++;
     }
-//    for (int i = cart_part.Size(); i < partitioning.Size(); i++)
-//    {
-//        partitioning[i] = num_parts++;
-//    }
+    //    for (int i = cart_part.Size(); i < partitioning.Size(); i++)
+    //    {
+    //        partitioning[i] = num_parts++;
+    //    }
 }

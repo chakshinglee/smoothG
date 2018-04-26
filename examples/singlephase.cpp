@@ -163,7 +163,6 @@ int main(int argc, char* argv[])
     auto& rhs_sigma_fine = spe10problem.GetEdgeRHS();
     auto& rhs_u_fine = spe10problem.GetVertexRHS();
     auto& well_list = spe10problem.GetWells();
-    auto& ess_edof_marker = spe10problem.GetEssentialEdgeDofsMarker();
 
     int num_producer = 0;
     for (auto& well : well_list)
@@ -222,7 +221,7 @@ int main(int argc, char* argv[])
     geo_coarsening_factor[0] = 5;
     geo_coarsening_factor[1] = 5;
     geo_coarsening_factor[2] = nDimensions == 3 ? 1 : nz;
-//    spe10problem.CartPart(partition, nz, geo_coarsening_factor, well_vertices);
+    //    spe10problem.CartPart(partition, nz, geo_coarsening_factor, well_vertices);
 
     // Create Upscaler and Solve
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partition, edge_d_td,
@@ -236,14 +235,14 @@ int main(int argc, char* argv[])
     rhs_fine.GetBlock(1) = rhs_u_fine;
 
     // Fine scale transport based on fine flux
-    fvupscale.MakeFineSolver(ess_edof_marker);
+    fvupscale.MakeFineSolver();
     auto sol_fine = fvupscale.SolveFine(rhs_fine);
     fvupscale.ShowFineSolveInfo();
     auto S_fine = Transport(spe10problem, fvupscale, sol_fine, delta_t, total_time, vis_step,
                             Fine, "saturation based on fine scale flux", CoarseAdv::Upwind);
 
     // Fine scale transport based on upscaled flux
-    mfem::BlockVector rhs_coarse = fvupscale.Coarsen(rhs_fine);
+    mfem::BlockVector rhs_coarse = fvupscale.Restrict(rhs_fine);
     auto sol_coarse = fvupscale.SolveCoarse(rhs_coarse);
     auto sol_upscaled = fvupscale.Interpolate(sol_coarse);
     fvupscale.ShowCoarseSolveInfo();
@@ -255,8 +254,8 @@ int main(int argc, char* argv[])
     auto S_coarse = Transport(spe10problem, fvupscale, sol_coarse, delta_t, total_time, vis_step,
                               Coarse, "saturation based on coarse scale flux", CoarseAdv::Upwind);
 
-//    auto S_coarse2 = Transport2(spe10problem, fvupscale, sol_upscaled, delta_t, total_time,
-//                              vis_step, "saturation based on coarse scale flux", Coarse);
+    //    auto S_coarse2 = Transport2(spe10problem, fvupscale, sol_upscaled, delta_t, total_time,
+    //                              vis_step, "saturation based on coarse scale flux", Coarse);
 
     auto S_coarse2 = Transport(spe10problem, fvupscale, sol_upscaled, delta_t, total_time, vis_step,
                                Coarse, "saturation based on coarse scale flux", CoarseAdv::RAP);
@@ -449,15 +448,15 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
         }
         else if (coarse_Adv == CoarseAdv::Upwind)
         {
-            vertex_edge.MakeRef(up.GetCoarseMatrix().getD());
-            edge_d_td.MakeRef(up.GetCoarseMatrix().get_edge_d_td());
+            vertex_edge.MakeRef(up.GetCoarseMatrix().GetD());
+            edge_d_td.MakeRef(up.GetCoarseMatrix().GetEdgeDofToTrueDof());
         }
         else
         {
             vertex_edge.MakeRef(up.GetAggFace());
             edge_d_td.MakeRef(up.GetFaceTrueFace());
         }
-        influx = up.Coarsen(spe10problem.GetVertexRHS());
+        influx = up.Restrict(spe10problem.GetVertexRHS());
         full_caption = "Coarse scale ";
     }
     full_caption += caption;
@@ -543,7 +542,7 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
     mfem::ForwardEulerSolver ode_solver;
     ode_solver.Init(adv);
 
-    std::vector<mfem::Vector> sats(well_vertices.Size(), mfem::Vector(total_time/delta_t+2));
+    std::vector<mfem::Vector> sats(well_vertices.Size(), mfem::Vector(total_time / delta_t + 2));
     for (unsigned int i = 0; i < sats.size(); i++)
     {
         sats[i] = 0.0;
@@ -556,18 +555,18 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
         ode_solver.Step(S, time, dt_real);
         ti++;
 
-//        for (unsigned int i = 0; i < sats.size(); i++)
-//        {
-//            if (level == Coarse)
-//            {
-//                up.Interpolate(S, S_vis);
-//                sats[i](ti) = S_vis(well_vertices[i]);
-//            }
-//            else
-//            {
-//                sats[i](ti) = S(well_vertices[i]);
-//            }
-//        }
+        //        for (unsigned int i = 0; i < sats.size(); i++)
+        //        {
+        //            if (level == Coarse)
+        //            {
+        //                up.Interpolate(S, S_vis);
+        //                sats[i](ti) = S_vis(well_vertices[i]);
+        //            }
+        //            else
+        //            {
+        //                sats[i](ti) = S(well_vertices[i]);
+        //            }
+        //        }
 
         done = (time >= total_time - 1e-8 * delta_t);
 
@@ -599,8 +598,8 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
 
     for (unsigned int i = 0; i < sats.size(); i++)
     {
-        std::ofstream ofs("sat_prod_"+std::to_string(i)+"_"+std::to_string(myid)
-                          +"_"+std::to_string(option)+".txt");
+        std::ofstream ofs("sat_prod_" + std::to_string(i) + "_" + std::to_string(myid)
+                          + "_" + std::to_string(option) + ".txt");
         sats[i].Print(ofs, 1);
     }
 

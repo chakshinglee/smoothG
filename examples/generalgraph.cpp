@@ -113,6 +113,11 @@ int main(int argc, char* argv[])
     bool energy_dual = false;
     args.AddOption(&energy_dual, "-ed", "--energy-dual", "-no-ed",
                    "--no-energy-dual", "Use energy matrix in trace generation.");
+    bool coarse_coefficient = false;
+    args.AddOption(&coarse_coefficient, "--coarse-coefficient", "--coarse-coefficient",
+                   "--no-coarse-coefficient", "--no-coarse-coefficient",
+                   "Assemble coarse mass matrix so that the coefficients (edge weights) "
+                   "can be rescaled after coarsening.");
     args.Parse();
     if (!args.Good())
     {
@@ -129,7 +134,7 @@ int main(int argc, char* argv[])
     }
 
     assert(num_partitions >= num_procs);
-
+    bool coarse_components = (coarse_coefficient && !hybridization);
 
     /// [Load graph from file or generate one]
     mfem::SparseMatrix vertex_edge_global;
@@ -181,7 +186,7 @@ int main(int argc, char* argv[])
         /// [Upscale]
         GraphUpscale upscale(comm, vertex_edge_global, global_partitioning,
                              spect_tol, max_evects, dual_target, scaled_dual,
-                             energy_dual, hybridization, weight);
+                             energy_dual, hybridization, coarse_components, weight);
 
         upscale.PrintInfo();
         upscale.ShowSetupTime();
@@ -245,9 +250,9 @@ void MetisPart(const mfem::SparseMatrix& vertex_edge, mfem::Array<int>& part, in
 
 mfem::Vector ComputeFiedlerVector(const MixedMatrix& mixed_laplacian)
 {
-    auto& pM = mixed_laplacian.get_pM();
-    auto& pD = mixed_laplacian.get_pD();
-    auto* pW = mixed_laplacian.get_pW();
+    auto& pM = mixed_laplacian.GetParallelM();
+    auto& pD = mixed_laplacian.GetParallelD();
+    auto* pW = mixed_laplacian.GetParallelW();
 
     unique_ptr<mfem::HypreParMatrix> MinvDT(pD.Transpose());
 

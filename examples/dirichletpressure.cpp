@@ -123,8 +123,9 @@ int main(int argc, char* argv[])
     mfem::Vector rhs_sigma_fine;
 
     // Setting up finite volume discretization problem
+    const double proc_part_ubal = 2.0;
     SPE10Problem spe10problem(permFile, nDimensions, spe10_scale, slice,
-                              metis_agglomeration, coarseningFactor);
+                              metis_agglomeration, proc_part_ubal, coarseningFactor);
 
     mfem::ParMesh* pmesh = spe10problem.GetParMesh();
 
@@ -194,11 +195,7 @@ int main(int argc, char* argv[])
     FiniteVolumeUpscale fvupscale(comm, vertex_edge, weight, partitioning, *edge_d_td,
                                   edge_boundary_att, ess_attr, spect_tol, max_evects,
                                   dual_target, scaled_dual, energy_dual, hybridization);
-
-    mfem::Array<int> marker(fvupscale.GetFineMatrix().getD().Width());
-    marker = 0;
-    sigmafespace.GetEssentialVDofs(ess_attr, marker);
-    fvupscale.MakeFineSolver(marker);
+    fvupscale.MakeFineSolver();
 
     fvupscale.PrintInfo();
     fvupscale.ShowSetupTime();
