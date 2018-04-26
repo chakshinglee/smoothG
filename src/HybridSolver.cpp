@@ -251,7 +251,7 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
                 ess_multiplier_dofs_[i] = 0;
         }
     }
-    MPI_Allreduce(&ess_mult_bc_loc, &ess_multiplier_bc_, 1, MPI_LOGICAL, MPI_LAND, comm_);
+    MPI_Allreduce(&ess_mult_bc_loc, &ess_multiplier_bc_, 1, MPI::BOOL, MPI_LAND, comm_);
 
     BuildParallelSystemAndSolver();
 
