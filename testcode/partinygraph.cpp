@@ -284,6 +284,7 @@ int main(int argc, char* argv[])
         args.PrintOptions(std::cout);
     }
 
+    const bool remove_one_dof = true;
     const int nvertices = 6;
 
     // generate the graph
@@ -321,7 +322,7 @@ int main(int argc, char* argv[])
     // solve
     if (myid == 0)
         std::cout << "Solving graph problem..." << std::endl;
-    MinresBlockSolver mgp(comm, M, D, W, block_true_offsets, w_block);
+    MinresBlockSolver mgp(comm, M, D, W, block_true_offsets, remove_one_dof, w_block);
     mgp.Mult(rhs, sol);
     int iter = mgp.GetNumIterations();
     // int nnz = mgp.GetNNZ();
