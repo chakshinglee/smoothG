@@ -55,6 +55,8 @@ FiniteVolumeMLMC::FiniteVolumeMLMC(MPI_Comm comm,
     auto graph_topology = make_unique<GraphTopology>(ve_copy, edge_d_td_, partitioning,
                                                      &edge_boundary_att_);
 
+    c2f_normal_flip_ = BuildCoarseToFineNormalFlip(*graph_topology, vertex_edge);
+
     coarsener_ = make_unique<SpectralAMG_MGL_Coarsener>(
                      mixed_laplacians_[0], std::move(graph_topology),
                      spect_tol, max_evects, dual_target, scaled_dual, energy_dual,
@@ -98,12 +100,12 @@ FiniteVolumeMLMC::FiniteVolumeMLMC(MPI_Comm comm,
     // Hypre may modify the original vertex_edge, which we seek to avoid
     mfem::SparseMatrix ve_copy(vertex_edge);
 
-    auto D = MixedMatrix::ConstructD(vertex_edge, edge_d_td_);
-    auto fine_mbuilder = make_unique<FineMBuilder>(local_weight, vertex_edge);
-    mixed_laplacians_.emplace_back(std::move(fine_mbuilder), std::move(D), nullptr, edge_d_td_);
+    mixed_laplacians_.emplace_back(vertex_edge, local_weight, edge_d_td_);
 
     auto graph_topology = make_unique<GraphTopology>(ve_copy, edge_d_td_, partitioning,
                                                      &edge_boundary_att_);
+
+    c2f_normal_flip_ = BuildCoarseToFineNormalFlip(*graph_topology, vertex_edge);
 
     coarsener_ = make_unique<SpectralAMG_MGL_Coarsener>(
                      mixed_laplacians_[0], std::move(graph_topology),
@@ -162,6 +164,15 @@ void FiniteVolumeMLMC::MakeCoarseSolver()
                        coarsener_->construct_face_facedof_table(),
                        ess_attr_, marker);
 
+    for (int i = 0; i < ess_attr_.Size(); i++)
+    {
+        if (ess_attr_[i] == 0)
+        {
+            remove_one_dof_ = false;
+            break;
+        }
+    }
+
     if (hybridization_) // Hybridization solver
     {
         // coarse_components method does not store element matrices
@@ -182,10 +193,10 @@ void FiniteVolumeMLMC::MakeCoarseSolver()
             if (marker[mm])
                 Mref.EliminateRow(mm, true);
         }
-
         Dref.EliminateCols(marker);
 
-        coarse_solver_ = make_unique<MinresBlockSolverFalse>(comm_, GetCoarseMatrix());
+        coarse_solver_ = make_unique<MinresBlockSolverFalse>(
+                    comm_, GetCoarseMatrix(), remove_one_dof_);
     }
 }
 
@@ -203,7 +214,6 @@ void FiniteVolumeMLMC::ForceMakeFineSolver()
     {
         mfem::SparseMatrix& Mref = GetFineMatrix().GetM();
         mfem::SparseMatrix& Dref = GetFineMatrix().GetD();
-        const bool w_exists = GetFineMatrix().CheckW();
 
         for (int mm = 0; mm < marker.Size(); ++mm)
         {
@@ -216,12 +226,9 @@ void FiniteVolumeMLMC::ForceMakeFineSolver()
             }
         }
         Dref.EliminateCols(marker);
-        if (!w_exists && myid_ == 0)
-        {
-            Dref.EliminateRow(0);
-        }
 
-        fine_solver_ = make_unique<MinresBlockSolverFalse>(comm_, GetFineMatrix());
+        fine_solver_ = make_unique<MinresBlockSolverFalse>(
+                    comm_, GetFineMatrix(), remove_one_dof_);
     }
 
 }

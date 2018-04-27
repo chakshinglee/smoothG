@@ -66,6 +66,10 @@ public:
                 const mfem::HypreParMatrix& edge_d_td,
                 DistributeWeight dist_weight = DistributeWeight::True);
 
+    MixedMatrix(const mfem::SparseMatrix& vertex_edge,
+                const std::vector<mfem::Vector>& local_weight,
+                const mfem::HypreParMatrix& edge_d_td);
+
     MixedMatrix(std::unique_ptr<MBuilder> mbuilder,
                 std::unique_ptr<mfem::SparseMatrix> D,
                 std::unique_ptr<mfem::SparseMatrix> W,

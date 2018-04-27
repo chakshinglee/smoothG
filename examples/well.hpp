@@ -696,10 +696,10 @@ void CoarsenSigmaEssentialCondition(
 class SPE10Problem
 {
 public:
-    SPE10Problem(const char* permFile, const int nDimensions,
-                 const int spe10_scale, const int slice, const mfem::Array<int>& ess_attr,
-                 int nz = 15, int well_height = 5,
-                 double inject_rate = 1.0, double bottom_hole_pressure = 0.0, double well_shift = 1.0);
+    SPE10Problem(const char* permFile, const int nDimensions, const int spe10_scale,
+                 const int slice, const mfem::Array<int>& ess_attr,
+                 int nz = 15, int well_height = 5, double inject_rate = 1.0,
+                 double bottom_hole_pressure = 0.0, double well_shift = 1.0);
 
     ~SPE10Problem()
     {
@@ -724,6 +724,10 @@ public:
     const mfem::Vector& GetWeight() const
     {
         return weight_;
+    }
+    const std::vector<mfem::Vector>& GetLocalWeight() const
+    {
+        return local_weight_;
     }
     const mfem::Vector& GetEdgeRHS() const
     {
@@ -779,6 +783,8 @@ private:
     shared_ptr<mfem::HypreParMatrix> edge_d_td_;
 
     mfem::Vector weight_;
+    std::vector<mfem::Vector> local_weight_;
+
     mfem::Vector rhs_sigma_;
     mfem::Vector rhs_u_;
 
@@ -793,9 +799,10 @@ private:
     int myid_;
 };
 
-SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
-                           const int spe10_scale, const int slice, const mfem::Array<int>& ess_attr, int nz,
-                           int well_height, double inject_rate, double bottom_hole_pressure, double well_shift)
+SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions, const int spe10_scale,
+                           const int slice, const mfem::Array<int>& ess_attr, int nz,
+                           int well_height, double inject_rate, double bottom_hole_pressure,
+                           double well_shift)
 {
     int num_procs;
     MPI_Comm comm = MPI_COMM_WORLD;
@@ -832,7 +839,7 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
     mfem::Array<int> partition(mesh.CartesianPartitioning(num_procs_xyz_.data()), mesh.GetNE());
     partition.MakeDataOwner();
 
-    pmesh_  = make_unique<mfem::ParMesh>(comm, mesh, partition);
+    pmesh_  = make_unique<mfem::ParMesh>(comm, mesh);
 
     if (myid_ == 0)
     {
@@ -853,6 +860,23 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions,
     // Construct "finite volume mass" matrix
     mfem::ParBilinearForm a(sigmafespace_.get());
     a.AddDomainIntegrator(new FiniteVolumeMassIntegrator(*kinv));
+
+    // Compute and store element mass matrices and local edge weights
+    a.ComputeElementMatrices();
+    local_weight_.resize(pmesh_->GetNE());
+    mfem::DenseMatrix M_el_i;
+    for (int i = 0; i < pmesh_->GetNE(); i++)
+    {
+        a.ComputeElementMatrix(i, M_el_i);
+        mfem::Vector& local_weight_i = local_weight_[i];
+        local_weight_i.SetSize(M_el_i.Height());
+        for (int j = 0; j < local_weight_i.Size(); j++)
+        {
+            local_weight_i[j] = 1.0 / M_el_i(j, j);
+        }
+    }
+
+    // Assemble mass matrix and edge weight
     a.Assemble();
     a.Finalize();
     a.SpMat().GetDiag(weight_);

@@ -447,6 +447,7 @@ FineMBuilder::FineMBuilder(const std::vector<mfem::Vector>& local_edge_weight,
         agg_M.SetSize(Agg_edge_weight.Size());
         for (int i = 0; i < agg_M.Size(); i++)
         {
+            assert(fabs(Agg_edge_weight[i]) != 0.0);
             agg_M[i] = 1.0 / Agg_edge_weight[i];
         }
     }

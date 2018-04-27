@@ -519,4 +519,29 @@ std::vector<GraphTopology> MultilevelGraphTopology(
     return graph_topologies;
 }
 
+std::vector<std::vector<double> > BuildCoarseToFineNormalFlip(
+    const GraphTopology& topo, const mfem::SparseMatrix& vertex_edge)
+{
+    const auto& face_Agg = topo.face_Agg_;
+    const auto& face_edge = topo.face_edge_;
+    const auto vert_Agg = smoothg::Transpose(topo.Agg_vertex_);
+    const auto edge_vertex = smoothg::Transpose(vertex_edge);
+
+    std::vector<std::vector<double> > c2f_normal_flip(face_Agg.Height());
+    mfem::Array<int> edges;
+    for (int face = 0; face < face_Agg.Height(); face++)
+    {
+        GetTableRow(face_edge, face, edges);
+        int first_Agg = face_Agg.GetRowColumns(face)[0];
+        c2f_normal_flip[face].resize(edges.Size());
+        for (int edge = 0; edge < edges.Size(); edge++)
+        {
+            int first_vert = edge_vertex.GetRowColumns(edges[edge])[0];
+            int first_vert_Agg = vert_Agg.GetRowColumns(first_vert)[0];
+            c2f_normal_flip[face][edge] = (first_vert_Agg == first_Agg) ? 1.0 : -1.0;
+        }
+    }
+    return c2f_normal_flip;
+}
+
 } // namespace smoothg

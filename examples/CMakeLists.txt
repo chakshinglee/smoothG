@@ -40,6 +40,9 @@ target_link_libraries(mlmc smoothg ${TPL_LIBRARIES})
 add_executable(singlephase singlephase.cpp)
 target_link_libraries(singlephase smoothg ${TPL_LIBRARIES})
 
+add_executable(twophase twophase.cpp)
+target_link_libraries(twophase smoothg ${TPL_LIBRARIES})
+
 add_executable(dirichletpressure dirichletpressure.cpp)
 target_link_libraries(dirichletpressure smoothg ${TPL_LIBRARIES})
 

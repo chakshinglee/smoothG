@@ -157,6 +157,9 @@ std::vector<GraphTopology> MultilevelGraphTopology(
     mfem::SparseMatrix& vertex_edge, const mfem::HypreParMatrix& edge_d_td,
     const mfem::SparseMatrix* edge_boundaryattr, int num_levels, int coarsening_factor);
 
+std::vector<std::vector<double> > BuildCoarseToFineNormalFlip(
+    const GraphTopology& topo, const mfem::SparseMatrix& vertex_edge);
+
 } // namespace smoothg
 
 #endif /* __GRAPHTOPOLOGY_HPP__ */
