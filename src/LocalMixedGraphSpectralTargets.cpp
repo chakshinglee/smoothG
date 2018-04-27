@@ -402,7 +402,7 @@ void LocalMixedGraphSpectralTargets::ComputeVertexTargets(
 
         // Apply SVD to the restricted vectors (first vector is always kept)
         evects_restricted.GetColumn(0, first_evect);
-//        evects_restricted = evects_restricted(0, 0);
+        evects_restricted = evects_restricted(0, 0);
         Orthogonalize(evects_restricted, first_evect, 1, local_vertex_targets[iAgg]);
         mfem::Vector first_evect_ref;
         local_vertex_targets[iAgg].GetColumnReference(0, first_evect_ref);

@@ -254,28 +254,28 @@ int main(int argc, char* argv[])
                 Coarse, Fine, "saturation based on coarse scale upwind", CoarseAdv::Upwind);
 
     // Coarse scale transport based on upscaled flux
-//    auto S_coarse = TwoPhaseFlow(
-//                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
-//                Coarse, Coarse, "saturation based on coarse scale upwind", CoarseAdv::Upwind);
+    auto S_coarse = TwoPhaseFlow(
+                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
+                Coarse, Coarse, "saturation based on coarse scale upwind", CoarseAdv::Upwind);
 
     auto S_coarse2 = TwoPhaseFlow(
                 spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
                 Coarse, Coarse, "saturation based on RAP", CoarseAdv::RAP);
 
-//    auto S_coarse3 = TwoPhaseFlow(
-//                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
-//                Coarse, Coarse, "saturation based on fastRAP", CoarseAdv::FastRAP);
+    auto S_coarse3 = TwoPhaseFlow(
+                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
+                Coarse, Coarse, "saturation based on fastRAP", CoarseAdv::FastRAP);
 
     double sat_err = CompareError(comm, S_upscaled, S_fine);
-//    double sat_err2 = CompareError(comm, S_coarse, S_fine);
+    double sat_err2 = CompareError(comm, S_coarse, S_fine);
     double sat_err3 = CompareError(comm, S_coarse2, S_fine);
-//    double sat_err4 = CompareError(comm, S_coarse3, S_fine);
+    double sat_err4 = CompareError(comm, S_coarse3, S_fine);
     if (myid == 0)
     {
 //        std::cout << "Flow errors:\n";
 //        ShowErrors(error_info);
-        std::cout << "Saturation errors: " << sat_err << ", " << sat_err//<< "\n";
-                  << " " << sat_err3 << " " << sat_err3 << "\n";
+        std::cout << "Saturation errors: " << sat_err << ", " << sat_err2//<< "\n";
+                  << " " << sat_err3 << " " << sat_err4 << "\n";
     }
 
     return EXIT_SUCCESS;
@@ -529,6 +529,7 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
 
     unique_ptr<mfem::HypreParMatrix> Adv;
     mfem::BlockVector upscaled_flow_sol(up.GetFineBlockVector());
+    mfem::Vector upscaled_total_mobility(up.GetCoarseBlockVector().BlockSize(1));
     mfem::Vector normal_flux;
 
     bool done = false;
@@ -543,7 +544,15 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
         }
         else
         {
-            up.RescaleCoarseCoefficient(total_mobility);
+            if (S_level == Coarse)
+            {
+                up.RescaleCoarseCoefficient(total_mobility);
+            }
+            else
+            {
+                up.Restrict(total_mobility, upscaled_total_mobility);
+                up.RescaleCoarseCoefficient(upscaled_total_mobility);
+            }
             up.SolveCoarse(p_rhs, flow_sol);
 //            up.ShowCoarseSolveInfo();
         }
