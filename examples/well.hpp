@@ -913,7 +913,7 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions, const in
                             bottom_hole_pressure);
 
     // Store element mass matrices and local edge weights
-    local_weight_.resize(pmesh_->GetNE() + well_manager_->GetNumProducers());
+    local_weight_.resize(pmesh_->GetNE() + well_manager_->GetNumInjectors());
     mfem::DenseMatrix M_el_i;
     for (int i = 0; i < pmesh_->GetNE(); i++)
     {
