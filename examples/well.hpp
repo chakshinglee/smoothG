@@ -141,7 +141,9 @@ public:
                 mfem::VectorCoefficient& perm_inv_coeff)
         :
         mesh_(&mesh),
-        perm_inv_coeff_(&perm_inv_coeff)
+        perm_inv_coeff_(&perm_inv_coeff),
+        num_producers_(0),
+        num_injectors_(0)
     { }
 
     void AddWell(const WellType type,
@@ -154,9 +156,14 @@ public:
 
     const std::vector<Well>& GetWells() { return wells_; }
 
+    int GetNumProducers() { return num_producers_; }
+    int GetNumInjectors() { return num_injectors_; }
 private:
     mfem::Mesh* mesh_;
     mfem::VectorCoefficient* perm_inv_coeff_;
+
+    int num_producers_;
+    int num_injectors_;
 
     std::vector<Well> wells_;
 
@@ -231,6 +238,9 @@ void WellManager::AddWell(const WellType type,
 
     wells_.emplace_back(type, value, cell_indices, permeabilities,
                         cell_sizes, r_e, r_w, density, viscosity);
+
+    num_producers_ += (type == WellType::Producer);
+    num_injectors_ += (type == WellType::Injector);
 }
 
 mfem::SparseMatrix BuildReservoirGraph(const mfem::ParMesh& pmesh)
@@ -337,8 +347,8 @@ shared_ptr<mfem::HypreParMatrix> ExtendMatrixByIdentity(
 }
 
 shared_ptr<mfem::HypreParMatrix> IntegrateReservoirAndWellModels(
-    const std::vector<Well>& well_list,
-    mfem::SparseMatrix& vertex_edge, mfem::Vector& weight,
+    const std::vector<Well>& well_list, mfem::SparseMatrix& vertex_edge,
+    mfem::Vector& weight, std::vector<mfem::Vector>& local_weight,
     mfem::HypreParMatrix& edge_d_td, mfem::Vector& rhs_sigma, mfem::Vector& rhs_u)
 {
     int num_well_cells = 0;
@@ -351,14 +361,10 @@ shared_ptr<mfem::HypreParMatrix> IntegrateReservoirAndWellModels(
         num_injectors += (well.GetType() == WellType::Injector);
     }
 
-    mfem::SparseMatrix edge_vertex(smoothg::Transpose(vertex_edge));
-
-    const int num_reservoir_cells = edge_vertex.Width();
-    const int num_reservoir_faces = edge_vertex.Height();
+    const int num_reservoir_cells = vertex_edge.Height();
+    const int num_reservoir_faces = vertex_edge.Width();
     const int new_nedges = num_reservoir_faces + num_well_cells;
     const int new_nvertices = num_reservoir_cells + num_injectors;
-    const int edge_vertex_nnz = edge_vertex.NumNonZeroElems();
-    const int new_edge_vertex_nnz = edge_vertex_nnz + num_well_cells * 2; // this is over estimated
 
     // Copying the old data
     mfem::Vector new_weight(new_nedges);
@@ -369,16 +375,21 @@ shared_ptr<mfem::HypreParMatrix> IntegrateReservoirAndWellModels(
     mfem::Vector new_rhs_u(new_nvertices);
     std::copy_n(rhs_u.GetData(), rhs_u.Size(), new_rhs_u.GetData());
 
-    int* new_edge_vertex_i = new int[new_nedges + 1];
-    std::copy_n(edge_vertex.GetI(), num_reservoir_faces + 1, new_edge_vertex_i);
-    int* new_edge_vertex_j = new int[new_edge_vertex_nnz];
-    std::copy_n(edge_vertex.GetJ(), edge_vertex_nnz, new_edge_vertex_j);
-    double* new_edge_vertex_data = new double[new_edge_vertex_nnz];
-    std::fill_n(new_edge_vertex_data, new_edge_vertex_nnz, 1.0);
+    mfem::SparseMatrix new_vertex_edge(new_nvertices, new_nedges);
+    {
+        int* vertex_edge_i = vertex_edge.GetI();
+        int* vertex_edge_j = vertex_edge.GetJ();
+        for (int i = 0; i < num_reservoir_cells; i++)
+        {
+            for (int j = vertex_edge_i[i]; j < vertex_edge_i[i + 1]; j++)
+            {
+                new_vertex_edge.Add(i, vertex_edge_j[j], 1.0);
+            }
+        }
+    }
 
     // Adding well equations to the system
     int edge_counter = num_reservoir_faces;
-    int nnz_counter = edge_vertex_nnz;
     int injector_counter = 0;
     for (unsigned int i = 0; i < well_list.size(); i++)
     {
@@ -389,37 +400,48 @@ shared_ptr<mfem::HypreParMatrix> IntegrateReservoirAndWellModels(
         {
             for (unsigned int j = 0; j < well_cells.size(); j++)
             {
-                new_edge_vertex_j[nnz_counter] = well_cells[j];
+                new_vertex_edge.Add(well_cells[j], edge_counter, 1.0);
                 new_weight[edge_counter] = well_coeff[j];
                 new_rhs_sigma[edge_counter] = well_list[i].GetValue();
-                nnz_counter++;
 
-                new_edge_vertex_i[edge_counter + 1] = nnz_counter;
+                auto& local_weight_j = local_weight[well_cells[j]];
+                mfem::Vector new_local_weight_j(local_weight_j.Size() + 1);
+                for (int k = 0; k < local_weight_j.Size(); k++)
+                {
+                    new_local_weight_j[k] = local_weight_j[k];
+                }
+                new_local_weight_j[local_weight_j.Size()] = well_coeff[j];
+                local_weight_j.Swap(new_local_weight_j);
+
                 edge_counter++;
             }
         }
         else
         {
+            auto& local_weight_j = local_weight[num_reservoir_cells + injector_counter];
+            local_weight_j.SetSize(well_cells.size());
+            local_weight_j = INFINITY; // Not sure if this is ok
             for (unsigned int j = 0; j < well_cells.size(); j++)
             {
-                new_edge_vertex_j[nnz_counter] = well_cells[j];
-                new_edge_vertex_j[nnz_counter + 1] = num_reservoir_cells + injector_counter;
+                new_vertex_edge.Add(well_cells[j], edge_counter, 1.0);
+                new_vertex_edge.Add(num_reservoir_cells + injector_counter, edge_counter, 1.0);
                 new_weight[edge_counter] = well_coeff[j];
-                nnz_counter += 2;
+                auto& local_weight_j = local_weight[well_cells[j]];
+                mfem::Vector new_local_weight_j(local_weight_j.Size() + 1);
+                for (int k = 0; k < local_weight_j.Size(); k++)
+                {
+                    new_local_weight_j[k] = local_weight_j[k];
+                }
+                new_local_weight_j[local_weight_j.Size()] = well_coeff[j];
+                local_weight_j.Swap(new_local_weight_j);
 
-                new_edge_vertex_i[edge_counter + 1] = nnz_counter;
                 edge_counter++;
             }
             new_rhs_u[num_reservoir_cells + injector_counter] = -1.0 * well_list[i].GetValue();
             injector_counter++;
         }
     }
-
-    mfem::SparseMatrix new_edge_vertex(new_edge_vertex_i, new_edge_vertex_j,
-                                       new_edge_vertex_data,
-                                       new_nedges, new_nvertices);
-    //new_edge_vertex.Print();
-    mfem::SparseMatrix new_vertex_edge(smoothg::Transpose(new_edge_vertex));
+    new_vertex_edge.Finalize();
 
     vertex_edge.Swap(new_vertex_edge);
     weight.Swap(new_weight);
@@ -861,22 +883,8 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions, const in
     mfem::ParBilinearForm a(sigmafespace_.get());
     a.AddDomainIntegrator(new FiniteVolumeMassIntegrator(*kinv));
 
-    // Compute and store element mass matrices and local edge weights
+    // Compute element mass matrices, assemble mass matrix and edge weight
     a.ComputeElementMatrices();
-    local_weight_.resize(pmesh_->GetNE());
-    mfem::DenseMatrix M_el_i;
-    for (int i = 0; i < pmesh_->GetNE(); i++)
-    {
-        a.ComputeElementMatrix(i, M_el_i);
-        mfem::Vector& local_weight_i = local_weight_[i];
-        local_weight_i.SetSize(M_el_i.Height());
-        for (int j = 0; j < local_weight_i.Size(); j++)
-        {
-            local_weight_i[j] = 1.0 / M_el_i(j, j);
-        }
-    }
-
-    // Assemble mass matrix and edge weight
     a.Assemble();
     a.Finalize();
     a.SpMat().GetDiag(weight_);
@@ -896,7 +904,6 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions, const in
 
     mesh.GetBoundingBox(bbmin_, bbmax_, 1);
 
-
     // Build wells (Peaceman's five-spot pattern)
     well_manager_ = make_unique<WellManager>(*pmesh_, *kinv);
     //setup_five_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
@@ -905,8 +912,22 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions, const in
     setup_five_spot_pattern(N, nDimensions, *well_manager_, well_height, inject_rate,
                             bottom_hole_pressure);
 
+    // Store element mass matrices and local edge weights
+    local_weight_.resize(pmesh_->GetNE() + well_manager_->GetNumProducers());
+    mfem::DenseMatrix M_el_i;
+    for (int i = 0; i < pmesh_->GetNE(); i++)
+    {
+        a.ComputeElementMatrix(i, M_el_i);
+        mfem::Vector& local_weight_i = local_weight_[i];
+        local_weight_i.SetSize(M_el_i.Height());
+        for (int j = 0; j < local_weight_i.Size(); j++)
+        {
+            local_weight_i[j] = 1.0 / M_el_i(j, j);
+        }
+    }
+
     edge_d_td_ = IntegrateReservoirAndWellModels(
-                     well_manager_->GetWells(), vertex_edge_, weight_,
+                     well_manager_->GetWells(), vertex_edge_, weight_, local_weight_,
                      *(sigmafespace_->Dof_TrueDof_Matrix()), rhs_sigma_, rhs_u_);
 
     auto edge_bdr_att_tmp = GenerateBoundaryAttributeTable(pmesh_.get());

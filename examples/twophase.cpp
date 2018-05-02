@@ -164,7 +164,7 @@ int main(int argc, char* argv[])
     auto& vertex_edge = spe10problem.GetVertexEdge();
     auto& edge_d_td = spe10problem.GetEdgeToTrueEdge();
     auto& weight = spe10problem.GetWeight();
-//    auto& local_weight = spe10problem.GetLocalWeight();
+    auto& local_weight = spe10problem.GetLocalWeight();
     auto& edge_bdr_att = spe10problem.GetEdgeBoundaryAttributeTable();
     auto& rhs_sigma_fine = spe10problem.GetEdgeRHS();
     auto& rhs_u_fine = spe10problem.GetVertexRHS();
@@ -265,7 +265,7 @@ int main(int argc, char* argv[])
     auto S_coarse3 = TwoPhaseFlow(
                 spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
                 Coarse, Coarse, "saturation based on fastRAP", CoarseAdv::FastRAP);
-
+S_coarse*=0.0;
     double sat_err = CompareError(comm, S_upscaled, S_fine);
     double sat_err2 = CompareError(comm, S_coarse, S_fine);
     double sat_err3 = CompareError(comm, S_coarse2, S_fine);
