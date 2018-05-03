@@ -108,6 +108,18 @@ FiniteVolumeMLMC::FiniteVolumeMLMC(MPI_Comm comm,
 
     c2f_normal_flip_ = BuildCoarseToFineNormalFlip(*graph_topology, vertex_edge);
 
+    {
+        mfem::SparseMatrix agg_average_tmp(graph_topology->Agg_vertex_);
+        agg_average_.Swap(agg_average_tmp);
+        mfem::Vector agg_inv_sizes(agg_average_.Height());
+        for (int i = 0; i < agg_average_.Height(); i++)
+        {
+            agg_inv_sizes(i) = 1.0 / agg_average_.RowSize(i);
+        }
+        agg_average_.ScaleRows(agg_inv_sizes);
+    }
+
+
     coarsener_ = make_unique<SpectralAMG_MGL_Coarsener>(
                      mixed_laplacians_[0], std::move(graph_topology),
                      spect_tol, max_evects, dual_target, scaled_dual, energy_dual,

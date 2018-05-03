@@ -116,6 +116,11 @@ public:
 
     void MakeCoarseSolver();
 
+    void ComputeAggAverages(const mfem::Vector& vert_val, mfem::Vector& agg_avg_val)
+    {
+        agg_average_.Mult(vert_val, agg_avg_val);
+    }
+
 private:
     const mfem::Vector& weight_;
     const mfem::HypreParMatrix& edge_d_td_;
@@ -123,6 +128,7 @@ private:
     const mfem::Array<int>& ess_attr_;
 
     const bool coarse_components_;
+    mfem::SparseMatrix agg_average_;
 
     const SAAMGeParam* saamge_param_;
 };

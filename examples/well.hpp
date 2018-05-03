@@ -420,7 +420,7 @@ shared_ptr<mfem::HypreParMatrix> IntegrateReservoirAndWellModels(
         {
             auto& local_weight_j = local_weight[num_reservoir_cells + injector_counter];
             local_weight_j.SetSize(well_cells.size());
-            local_weight_j = INFINITY; // Not sure if this is ok
+            local_weight_j = 1e10;//INFINITY; // Not sure if this is ok
             for (unsigned int j = 0; j < well_cells.size(); j++)
             {
                 new_vertex_edge.Add(well_cells[j], edge_counter, 1.0);
@@ -861,7 +861,7 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions, const in
     mfem::Array<int> partition(mesh.CartesianPartitioning(num_procs_xyz_.data()), mesh.GetNE());
     partition.MakeDataOwner();
 
-    pmesh_  = make_unique<mfem::ParMesh>(comm, mesh);
+    pmesh_  = make_unique<mfem::ParMesh>(comm, mesh, partition);
 
     if (myid_ == 0)
     {

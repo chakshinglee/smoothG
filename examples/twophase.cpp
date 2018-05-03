@@ -226,11 +226,10 @@ int main(int argc, char* argv[])
     geo_coarsening_factor[0] = 5;
     geo_coarsening_factor[1] = 5;
     geo_coarsening_factor[2] = nDimensions == 3 ? 1 : nz;
-    //    spe10problem.CartPart(partition, nz, geo_coarsening_factor, well_vertices);
+    spe10problem.CartPart(partition, nz, geo_coarsening_factor, well_vertices);
 
     // Create Upscaler and Solve
-    /// @todo make correct local weights when there are wells
-    FiniteVolumeMLMC fvupscale(comm, vertex_edge, weight, partition, edge_d_td,
+    FiniteVolumeMLMC fvupscale(comm, vertex_edge, local_weight, partition, edge_d_td,
                                edge_bdr_att, ess_attr, spect_tol, max_evects,
                                dual_target, scaled_dual, energy_dual, hybridization, false);
     fvupscale.PrintInfo();
@@ -264,7 +263,7 @@ int main(int argc, char* argv[])
     auto S_coarse3 = TwoPhaseFlow(
                 spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
                 Coarse, Coarse, "saturation based on fastRAP", CoarseAdv::FastRAP);
-S_coarse*=0.0;
+
     double sat_err = CompareError(comm, S_upscaled, S_fine);
     double sat_err2 = CompareError(comm, S_coarse, S_fine);
     double sat_err3 = CompareError(comm, S_coarse2, S_fine);
@@ -549,7 +548,8 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
             }
             else
             {
-                up.Restrict(total_mobility, upscaled_total_mobility);
+                up.ComputeAggAverages(total_mobility, upscaled_total_mobility);
+                /// @todo fix local coarse M matrix
                 up.RescaleCoarseCoefficient(upscaled_total_mobility);
             }
             up.SolveCoarse(p_rhs, flow_sol);
