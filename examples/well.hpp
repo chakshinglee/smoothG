@@ -861,7 +861,7 @@ SPE10Problem::SPE10Problem(const char* permFile, const int nDimensions, const in
     mfem::Array<int> partition(mesh.CartesianPartitioning(num_procs_xyz_.data()), mesh.GetNE());
     partition.MakeDataOwner();
 
-    pmesh_  = make_unique<mfem::ParMesh>(comm, mesh, partition);
+    pmesh_  = make_unique<mfem::ParMesh>(comm, mesh);
 
     if (myid_ == 0)
     {

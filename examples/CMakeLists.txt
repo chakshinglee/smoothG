@@ -46,6 +46,9 @@ target_link_libraries(twophase smoothg ${TPL_LIBRARIES})
 add_executable(dirichletpressure dirichletpressure.cpp)
 target_link_libraries(dirichletpressure smoothg ${TPL_LIBRARIES})
 
+add_executable(nonlinearmg nonlinearmg.cpp)
+target_link_libraries(nonlinearmg smoothg ${TPL_LIBRARIES})
+
 # add tests
 if (NOT DEFINED SMOOTHG_TEST_PROCS)
     set(SMOOTHG_TEST_PROCS 4)

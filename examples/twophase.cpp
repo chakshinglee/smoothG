@@ -133,7 +133,7 @@ int main(int argc, char* argv[])
     args.AddOption(&well_shift, "-wsh", "--well-shift", "Shift well from corners");
     int nz = 15;
     args.AddOption(&nz, "-nz", "--num-z", "Num of slices in z direction for 3d run.");
-    int coarsening_factor = 100;
+    int coarsening_factor = 10;
     args.AddOption(&coarsening_factor, "-cf", "--coarsen-factor", "Coarsening factor");
     args.Parse();
     if (!args.Good())
@@ -226,7 +226,7 @@ int main(int argc, char* argv[])
     geo_coarsening_factor[0] = 5;
     geo_coarsening_factor[1] = 5;
     geo_coarsening_factor[2] = nDimensions == 3 ? 1 : nz;
-    spe10problem.CartPart(partition, nz, geo_coarsening_factor, well_vertices);
+//    spe10problem.CartPart(partition, nz, geo_coarsening_factor, well_vertices);
 
     // Create Upscaler and Solve
     FiniteVolumeMLMC fvupscale(comm, vertex_edge, local_weight, partition, edge_d_td,
@@ -246,34 +246,34 @@ int main(int argc, char* argv[])
                 spe10problem, fvupscale, rhs_fine, delta_t, total_time, vis_step,
                 Fine, Fine, "saturation based on fine scale upwind", CoarseAdv::Upwind);
 
-    // Fine scale transport based on upscaled flux
-    auto S_upscaled = TwoPhaseFlow(
-                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
-                Coarse, Fine, "saturation based on coarse scale upwind", CoarseAdv::Upwind);
+//    // Fine scale transport based on upscaled flux
+//    auto S_upscaled = TwoPhaseFlow(
+//                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
+//                Coarse, Fine, "saturation based on coarse scale upwind", CoarseAdv::Upwind);
 
-    // Coarse scale transport based on upscaled flux
-    auto S_coarse = TwoPhaseFlow(
-                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
-                Coarse, Coarse, "saturation based on coarse scale upwind", CoarseAdv::Upwind);
+//    // Coarse scale transport based on upscaled flux
+//    auto S_coarse = TwoPhaseFlow(
+//                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
+//                Coarse, Coarse, "saturation based on coarse scale upwind", CoarseAdv::Upwind);
 
-    auto S_coarse2 = TwoPhaseFlow(
-                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
-                Coarse, Coarse, "saturation based on RAP", CoarseAdv::RAP);
+//    auto S_coarse2 = TwoPhaseFlow(
+//                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
+//                Coarse, Coarse, "saturation based on RAP", CoarseAdv::RAP);
 
     auto S_coarse3 = TwoPhaseFlow(
                 spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
                 Coarse, Coarse, "saturation based on fastRAP", CoarseAdv::FastRAP);
 
-    double sat_err = CompareError(comm, S_upscaled, S_fine);
-    double sat_err2 = CompareError(comm, S_coarse, S_fine);
-    double sat_err3 = CompareError(comm, S_coarse2, S_fine);
+//    double sat_err = CompareError(comm, S_upscaled, S_fine);
+//    double sat_err2 = CompareError(comm, S_coarse, S_fine);
+//    double sat_err3 = CompareError(comm, S_coarse2, S_fine);
     double sat_err4 = CompareError(comm, S_coarse3, S_fine);
     if (myid == 0)
     {
 //        std::cout << "Flow errors:\n";
 //        ShowErrors(error_info);
-        std::cout << "Saturation errors: " << sat_err << ", " << sat_err2//<< "\n";
-                  << " " << sat_err3 << " " << sat_err4 << "\n";
+        std::cout << "Saturation errors: " << sat_err4 << ", " << sat_err4//<< "\n";
+                  << " " << sat_err4 << " " << sat_err4 << "\n";
     }
 
     return EXIT_SUCCESS;

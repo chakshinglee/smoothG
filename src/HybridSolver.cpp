@@ -253,6 +253,13 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
     }
     MPI_Allreduce(&ess_mult_bc_loc, &ess_multiplier_bc_, 1, MPI::BOOL, MPI_LAND, comm_);
 
+    cg_ = make_unique<mfem::CGSolver>(comm_);
+    cg_->SetPrintLevel(print_level_);
+    cg_->SetMaxIter(max_num_iter_);
+    cg_->SetRelTol(rtol_);
+    cg_->SetAbsTol(atol_);
+    cg_->iterative_mode = false;
+
     BuildParallelSystemAndSolver();
 
     trueHrhs_.SetSize(multiplier_d_td_->GetNumCols());
@@ -843,13 +850,7 @@ void HybridSolver::BuildParallelSystemAndSolver()
     chrono.Clear();
     chrono.Start();
 
-    cg_ = make_unique<mfem::CGSolver>(comm_);
-    cg_->SetPrintLevel(print_level_);
-    cg_->SetMaxIter(max_num_iter_);
-    cg_->SetRelTol(rtol_);
-    cg_->SetAbsTol(atol_);
     cg_->SetOperator(*pHybridSystem_);
-    cg_->iterative_mode = false;
 
     // HypreBoomerAMG is broken if local size is zero
     int local_size = pHybridSystem_->Height();

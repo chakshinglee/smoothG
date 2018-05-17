@@ -135,7 +135,18 @@ FiniteVolumeMLMC::FiniteVolumeMLMC(MPI_Comm comm,
     setup_time_ += chrono.RealTime();
 }
 
-/// this implementation is sloppy
+void FiniteVolumeMLMC::RescaleCoefficient(int level, const mfem::Vector& coeff)
+{
+    if (level == 0)
+    {
+        RescaleFineCoefficient(coeff);
+    }
+    else
+    {
+        RescaleCoarseCoefficient(coeff);
+    }
+}
+
 void FiniteVolumeMLMC::RescaleFineCoefficient(const mfem::Vector& coeff)
 {
     if (!hybridization_)

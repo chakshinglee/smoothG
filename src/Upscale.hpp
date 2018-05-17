@@ -211,6 +211,21 @@ public:
         return c2f_normal_flip_;
     }
 
+    const int GetNumTotalDofs(int level) const
+    {
+        return GetMatrix(level).GetNumTotalDofs();
+    }
+
+    const int GetNumEdgeDofs(int level) const
+    {
+        return GetMatrix(level).GetNumEdgeDofs();
+    }
+
+    const int GetNumVertexDofs(int level) const
+    {
+        return GetMatrix(level).GetNumVertexDofs();
+    }
+
 protected:
     Upscale(MPI_Comm comm, int size, bool hybridization = false)
         : Operator(size), comm_(comm), setup_time_(0.0), hybridization_(hybridization),
