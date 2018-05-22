@@ -28,14 +28,26 @@ NonlinearMG::NonlinearMG(Hierarchy& hierarchy, Cycle cycle)
       num_levels_(hierarchy.GetNumLevels()), rhs_(num_levels_), sol_(num_levels_),
       help_(num_levels_)
 {
+    MPI_Comm_rank(comm_, &myid_);
+
+    help_[0].SetSize(hierarchy_.DomainSize(0));
+    for (int level = 1; level < num_levels_; level++)
+    {
+        int size = hierarchy_.DomainSize(level);
+        rhs_[level].SetSize(size);
+        sol_[level].SetSize(size);
+        help_[level].SetSize(size);
+    }
 }
 
-void NonlinearMG::Solve(const mfem::Vector& rhs, mfem::Vector& sol) const
+void NonlinearMG::Solve(const mfem::Vector& rhs, mfem::Vector& sol)
 {
+    mfem::Vector zero_vec(sol);
+    zero_vec = 0.0;
+    double norm = ResidualNorm(zero_vec, rhs);
+
     rhs_[0].SetDataAndSize(rhs.GetData(), rhs.Size());
     sol_[0].SetDataAndSize(sol.GetData(), sol.Size());
-
-    double norm = mfem::ParNormlp(rhs, 2, comm_); // TODO: add hierarchy source norm
     for (iter_ = 0; iter_ < max_num_iter_; iter_++)
     {
         if (cycle_ == Cycle::FMG)
@@ -48,35 +60,62 @@ void NonlinearMG::Solve(const mfem::Vector& rhs, mfem::Vector& sol) const
         }
 
         double resid_norm = ResidualNorm(sol, rhs);
+        if (myid_ == 0 && print_level_ > 0)
+        {
+            std::cout << "Nonlinear MG iter " << iter_
+                      << ": residual norm = " << resid_norm << "\n";
+        }
         if (resid_norm < atol_ || resid_norm / norm < rtol_)
         {
             break;
         }
     }
+
+    converged_ = (iter_ != max_num_iter_);
+    if (myid_ == 0 && !converged_ && print_level_ >= 0)
+    {
+        std::cout << "Warning: Nonlinear MG reached maximum number of iterations!\n";
+    }
 }
 
-void NonlinearMG::Mult(const mfem::Vector& rhs, mfem::Vector& sol) const
+void NonlinearMG::Mult(const mfem::Vector& rhs, mfem::Vector& sol)
 {
     Solve(rhs, sol);
 }
 
-void NonlinearMG::FAS_FMG() const
+void NonlinearMG::FAS_FMG()
 {
+
     // TODO: add smoothing step
     for (int level = 0; level < num_levels_ - 1; level++)
     {
-        hierarchy_.Restrict(level, rhs_[level], rhs_[level + 1]);
+//        hierarchy_.Restrict(level, rhs_[level], rhs_[level + 1]);
+//        hierarchy_.Project(level, sol_[level], sol_[level + 1]);
+
+        hierarchy_.Mult(level, sol_[level], help_[level]);
+        help_[level] -= rhs_[level];
+        hierarchy_.Restrict(level, help_[level], help_[level + 1]);
+        hierarchy_.Project(level, sol_[level], sol_[level + 1]);
+        hierarchy_.Mult(level+1, sol_[level + 1], rhs_[level + 1]);
+        rhs_[level + 1] -= help_[level + 1];
     }
 
     for (int level = num_levels_ - 1; level > 0; level--)
     {
+//        hierarchy_.Solve(level, rhs_[level], sol_[level]);
+//        hierarchy_.Interpolate(level, sol_[level], sol_[level - 1]);
+
+        help_[level] = sol_[level];
         hierarchy_.Solve(level, rhs_[level], sol_[level]);
-        hierarchy_.Interpolate(level, sol_[level], sol_[level - 1]);
+        help_[level] -= sol_[level];
+        hierarchy_.Interpolate(level, help_[level], help_[level - 1]);
+        sol_[level-1] -= help_[level-1];
     }
+
     hierarchy_.Solve(0, rhs_[0], sol_[0]);
 }
 
-void NonlinearMG::FAS_VCycle(int level) const
+void NonlinearMG::FAS_VCycle(int level)
 {
     if (level == num_levels_ - 1)
     {
@@ -91,7 +130,7 @@ void NonlinearMG::FAS_VCycle(int level) const
         hierarchy_.Mult(level, sol_[level], help_[level]);
         help_[level] -= rhs_[level];
         hierarchy_.Restrict(level, help_[level], help_[level + 1]);
-        hierarchy_.Restrict(level, sol_[level], sol_[level + 1]);
+        hierarchy_.Project(level, sol_[level], sol_[level + 1]);
         hierarchy_.Mult(level+1, sol_[level + 1], rhs_[level + 1]);
         rhs_[level + 1] -= help_[level + 1];
 

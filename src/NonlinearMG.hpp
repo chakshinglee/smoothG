@@ -37,7 +37,7 @@ namespace smoothg
 class Hierarchy
 {
 public:
-    Hierarchy(int num_levels) : num_levels_(num_levels) {}
+    Hierarchy(MPI_Comm comm, int num_levels) : comm_(comm), num_levels_(num_levels) {}
 
     /// Evaluates the action of the operator out = A[level](in)
     virtual void Mult(int level, const mfem::Vector& in, mfem::Vector& out) const = 0;
@@ -50,6 +50,9 @@ public:
 
     /// Interpolate a vector from level to level-1 (finer level)
     virtual void Interpolate(int level, const mfem::Vector& coarse, mfem::Vector& fine) const = 0;
+
+    /// Project a vector from level to level+1 (coarser level)
+    virtual void Project(int level, const mfem::Vector& fine, mfem::Vector& coarse) const = 0;
 
     /// Relaxation on each level
     virtual void Smoothing(int level, const mfem::Vector& in, mfem::Vector& out) const = 0;
@@ -65,8 +68,8 @@ public:
 
     MPI_Comm GetComm() const { return comm_; }
 protected:
-    int num_levels_;
     MPI_Comm comm_;
+    int num_levels_;
 };
 
 enum Cycle { V_CYCLE, FMG };
@@ -92,8 +95,8 @@ public:
        That is, dofs on processor boundaries are *repeated* in the vectors that
        come into and go out of this method.
     */
-    void Solve(const mfem::Vector& rhs, mfem::Vector& sol) const;
-    void Mult(const mfem::Vector& rhs, mfem::Vector& sol) const;
+    void Solve(const mfem::Vector& rhs, mfem::Vector& sol);
+    void Mult(const mfem::Vector& rhs, mfem::Vector& sol);
 
     ///@name Set solver parameters
     ///@{
@@ -107,31 +110,33 @@ public:
     ///@{
     int GetNumIterations() const { return num_iterations_; }
     double GetTiming() const { return timing_; }
+    bool IsConverged() const { return converged_; }
     ///@}
 
 protected:
-    void FAS_FMG() const;
-    void FAS_VCycle(int level) const;
+    void FAS_FMG();
+    void FAS_VCycle(int level);
     double ResidualNorm(const mfem::Vector& sol, const mfem::Vector& rhs) const;
 
     MPI_Comm comm_;
 
     // default iterative solver options
     int print_level_ = 0;
-    int max_num_iter_ = 5000;
-    double rtol_ = 1e-9;
-    double atol_ = 1e-12;
+    int max_num_iter_ = 10;
+    double rtol_ = 1e-3;
+    double atol_ = 1e-6;
 
-    int nnz_;
-    mutable int num_iterations_;
-    mutable double timing_;
-    mutable int iter_;
+    int myid_;
+    int num_iterations_;
+    double timing_;
+    int iter_;
+    bool converged_;
 
     Hierarchy& hierarchy_;
     Cycle cycle_;
     int num_levels_;
-    mutable std::vector<mfem::Vector> rhs_;
-    mutable std::vector<mfem::Vector> sol_;
+    std::vector<mfem::Vector> rhs_;
+    std::vector<mfem::Vector> sol_;
     mutable std::vector<mfem::Vector> help_;
 };
 

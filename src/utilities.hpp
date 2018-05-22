@@ -411,6 +411,9 @@ double PowerIterate(MPI_Comm comm, const mfem::Operator& A, mfem::Vector& result
 // Rescale vec by scaling: vec = diag(scaling) * vec
 void RescaleVector(const mfem::Vector& scaling, mfem::Vector& vec);
 
+// Rescale vec inversely by scaling: vec = diag(scaling)^-1 * vec
+void InvRescaleVector(const mfem::Vector& scaling, mfem::Vector& vec);
+
 /**
    @brief A SERIAL coloring algorithm marking distinct colors for adjacent elements
 

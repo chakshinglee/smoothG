@@ -206,6 +206,7 @@ void Upscale::Restrict(const mfem::Vector& x, mfem::Vector& y) const
 mfem::Vector Upscale::Restrict(const mfem::Vector& x) const
 {
     mfem::Vector coarse_vect = GetCoarseVector();
+
     Restrict(x, coarse_vect);
 
     return coarse_vect;
@@ -222,6 +223,41 @@ mfem::BlockVector Upscale::Restrict(const mfem::BlockVector& x) const
 {
     mfem::BlockVector coarse_vect(GetCoarseBlockVector());
     Restrict(x, coarse_vect);
+
+    return coarse_vect;
+}
+
+void Upscale::Project(const mfem::Vector& x, mfem::Vector& y) const
+{
+    assert(coarsener_);
+    coarsener_->restrict(x, y);
+//    std::cout << "Projector is not implemented!\n";
+//    std::abort();
+    // TODO: implemented coarsener_->project(x, y);
+}
+
+mfem::Vector Upscale::Project(const mfem::Vector& x) const
+{
+    mfem::Vector coarse_vect = GetCoarseVector();
+
+    Project(x, coarse_vect);
+
+    return coarse_vect;
+}
+
+void Upscale::Project(const mfem::BlockVector& x, mfem::BlockVector& y) const
+{
+    assert(coarsener_);
+    coarsener_->restrict(x, y);
+//    std::cout << "Projector is not implemented!\n";
+//    std::abort();
+    // TODO: implemented coarsener_->project(x, y);
+}
+
+mfem::BlockVector Upscale::Project(const mfem::BlockVector& x) const
+{
+    mfem::BlockVector coarse_vect(GetCoarseBlockVector());
+    Project(x, coarse_vect);
 
     return coarse_vect;
 }

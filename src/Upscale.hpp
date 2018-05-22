@@ -81,6 +81,14 @@ public:
     virtual void Restrict(const mfem::BlockVector& x, mfem::BlockVector& y) const;
     virtual mfem::BlockVector Restrict(const mfem::BlockVector& x) const;
 
+    /// Project a fine vector to the coarse level
+    virtual void Project(const mfem::Vector& x, mfem::Vector& y) const;
+    virtual mfem::Vector Project(const mfem::Vector& x) const;
+
+    /// Project a fine vector to the coarse level, in mixed form
+    virtual void Project(const mfem::BlockVector& x, mfem::BlockVector& y) const;
+    virtual mfem::BlockVector Project(const mfem::BlockVector& x) const;
+
     /// Get block offsets
     virtual void FineBlockOffsets(mfem::Array<int>& offsets) const;
     virtual void CoarseBlockOffsets(mfem::Array<int>& offsets) const;
