@@ -80,8 +80,7 @@ void MultSparseDense(const mfem::SparseMatrix& A, mfem::DenseMatrix& B,
                      mfem::DenseMatrix& C);
 
 /**
-    @brief Compute \f$ C = AB \f$, where \f$ A \f$ is sparse and
-           \f$ B \f$ is dense, but C is kept transposed.
+    @brief Compute \f$ C = (AB)^T \f$
 */
 void MultSparseDenseTranspose(const mfem::SparseMatrix& A, mfem::DenseMatrix& B,
                               mfem::DenseMatrix& C);
@@ -410,6 +409,12 @@ void BooleanMult(const mfem::SparseMatrix& mat, const mfem::Array<int>& vec,
 */
 mfem::Vector ExtractRowVector(const mfem::SparseMatrix& mat, int i);
 
+/**
+   @brief Compute the Frobenius norm of a matrix
+*/
+double FrobeniusNorm(const mfem::SparseMatrix& mat, MPI_Comm comm);
+
 } // namespace smoothg
+
 
 #endif /* __MATRIXUTILITIES_HPP__ */

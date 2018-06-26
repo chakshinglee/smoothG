@@ -272,6 +272,11 @@ void MinresBlockSolverFalse::Mult(const mfem::BlockVector& rhs,
         true_rhs_.GetBlock(1)(0) = 0.0;
     }
 
+//    mfem::SparseMatrix diag;
+//    edgedof_d_td.GetDiag(diag);
+//    diag.MultTranspose(sol.GetBlock(0), true_sol_.GetBlock(0));
+//    true_sol_.GetBlock(1) = true_sol_.GetBlock(1);
+
     minres_.Mult(true_rhs_, true_sol_);
 
     edgedof_d_td.Mult(true_sol_.GetBlock(0), sol.GetBlock(0));

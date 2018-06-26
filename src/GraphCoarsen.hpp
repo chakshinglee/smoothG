@@ -84,11 +84,9 @@ public:
 
        @param[out] Pedges the returned interpolator on edge space.
 
-       @param[out] CM_el coarse mass matrices on the coarse aggregates, used for
-                    hybridizatin
+       @param[out] face_dof face to coarse edge dofs table
 
-       @param[in] build_coarse_relation indicates whether the coarse relation tables
-       will be constructed, default value is false.
+       @param[out] coarse_mbuilder builder for coarse M matrix
     */
     void BuildInterpolation(
         std::vector<mfem::DenseMatrix>& edge_trace,
@@ -152,6 +150,12 @@ public:
     {
         return std::move(CoarseW_);
     }
+
+    const mfem::SparseMatrix& GetQedges() const
+    {
+        return *Qedges_;
+    }
+
 private:
     /// @brief take vertex-based target functions and assemble them in matrix
     void BuildPVertices(std::vector<mfem::DenseMatrix>& vertex_targets,
@@ -178,7 +182,8 @@ private:
     */
     void NormalizeTraces(std::vector<mfem::DenseMatrix>& edge_traces,
                          const mfem::SparseMatrix& Agg_vertex,
-                         const mfem::SparseMatrix& face_edge);
+                         const mfem::SparseMatrix& face_edge,
+                         const mfem::SparseMatrix& face_cdof);
 
     /**
        Figure out NNZ for each row of PEdges, which is to say, for each fine
@@ -230,7 +235,7 @@ private:
        @param[out] face_cdof is out, the face_cdof relation on coarse mesh
                    (coarse faces, coarse dofs)
        @param[out] Pedges the interpolation
-       @param[out] CM_el the coarse element mass matrices in case build_coarse_relation is true
+       @param[out] coarse_mbuilder builder for coarse M matrix
     */
     void BuildPEdges(
         std::vector<mfem::DenseMatrix>& edge_traces,
@@ -249,6 +254,22 @@ private:
                              const mfem::SparseMatrix& edge_vert,
                              const int agg,
                              mfem::Vector& Mloc);
+    /**
+       @brief Fill the trace part of Qedges_
+    */
+    void FillTraceQ(const mfem::Array<int>& coarse_dofs,
+                    const mfem::Array<int>& fine_dofs,
+                    const mfem::DenseMatrix& traces,
+                    const mfem::Vector& DT_ones,
+                    bool flip_sign);
+
+    /**
+       @brief Fill the bubble part of Qedges_
+    */
+    void FillBubbleQ(const mfem::Array<int>& coarse_dofs,
+                    const mfem::Array<int>& fine_dofs,
+                    const mfem::DenseMatrix& Pu_loc,
+                    const mfem::SparseMatrix& Dloc);
 
     const mfem::SparseMatrix& M_proc_;
     const mfem::SparseMatrix& D_proc_;
@@ -280,6 +301,9 @@ private:
 
     /// Coarse W operator
     std::unique_ptr<mfem::SparseMatrix> CoarseW_;
+
+    /// the product Pedges * Qedges_ is a projection on coarse edge space
+    std::unique_ptr<mfem::SparseMatrix> Qedges_;
 };
 
 } // namespace smoothg

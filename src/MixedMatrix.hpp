@@ -75,6 +75,8 @@ public:
                 std::unique_ptr<mfem::SparseMatrix> W,
                 const mfem::HypreParMatrix& edge_d_td);
 
+    void Mult(const mfem::Vector& x, mfem::Vector& y) const;
+
     /**
        @brief Get a const reference to the mass matrix M.
     */

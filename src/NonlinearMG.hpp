@@ -96,7 +96,10 @@ public:
        come into and go out of this method.
     */
     void Solve(const mfem::Vector& rhs, mfem::Vector& sol);
-    void Mult(const mfem::Vector& rhs, mfem::Vector& sol);
+    void Mult(const mfem::Vector& rhs, mfem::Vector& sol)
+    {
+        Solve(rhs, sol);
+    }
 
     ///@name Set solver parameters
     ///@{
@@ -108,7 +111,7 @@ public:
 
     ///@name Get results of iterative solve
     ///@{
-    int GetNumIterations() const { return num_iterations_; }
+    int GetNumIterations() const { return iter_; }
     double GetTiming() const { return timing_; }
     bool IsConverged() const { return converged_; }
     ///@}
@@ -122,12 +125,11 @@ protected:
 
     // default iterative solver options
     int print_level_ = 0;
-    int max_num_iter_ = 10;
-    double rtol_ = 1e-3;
-    double atol_ = 1e-6;
+    int max_num_iter_ = 500;
+    double rtol_ = 1e-6;
+    double atol_ = 1e-8;
 
     int myid_;
-    int num_iterations_;
     double timing_;
     int iter_;
     bool converged_;

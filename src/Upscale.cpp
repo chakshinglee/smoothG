@@ -89,6 +89,16 @@ mfem::BlockVector Upscale::Solve(const mfem::BlockVector& x) const
     return y;
 }
 
+void Upscale::MultCoarse(const mfem::Vector& x, mfem::Vector& y) const
+{
+    GetMatrix(1).Mult(x, y);
+}
+
+void Upscale::MultFine(const mfem::Vector& x, mfem::Vector& y) const
+{
+    GetMatrix(0).Mult(x, y);
+}
+
 void Upscale::SolveCoarse(const mfem::Vector& x, mfem::Vector& y) const
 {
     assert(coarse_solver_);
@@ -230,7 +240,7 @@ mfem::BlockVector Upscale::Restrict(const mfem::BlockVector& x) const
 void Upscale::Project(const mfem::Vector& x, mfem::Vector& y) const
 {
     assert(coarsener_);
-    coarsener_->restrict(x, y);
+    coarsener_->project(x, y);
 //    std::cout << "Projector is not implemented!\n";
 //    std::abort();
     // TODO: implemented coarsener_->project(x, y);
@@ -248,7 +258,7 @@ mfem::Vector Upscale::Project(const mfem::Vector& x) const
 void Upscale::Project(const mfem::BlockVector& x, mfem::BlockVector& y) const
 {
     assert(coarsener_);
-    coarsener_->restrict(x, y);
+    coarsener_->project(x, y);
 //    std::cout << "Projector is not implemented!\n";
 //    std::abort();
     // TODO: implemented coarsener_->project(x, y);

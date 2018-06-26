@@ -48,6 +48,10 @@ public:
     virtual void Solve(const mfem::BlockVector& x, mfem::BlockVector& y) const;
     virtual mfem::BlockVector Solve(const mfem::BlockVector& x) const;
 
+    /// Notice these functions apply the operators to input vector (as oppose to Mult)
+    virtual void MultCoarse(const mfem::Vector& x, mfem::Vector& y) const;
+    virtual void MultFine(const mfem::Vector& x, mfem::Vector& y) const;
+
     /// Wrapper for only the coarse level, no coarsen, interpolate with fine level
     virtual void SolveCoarse(const mfem::Vector& x, mfem::Vector& y) const;
     virtual mfem::Vector SolveCoarse(const mfem::Vector& x) const;

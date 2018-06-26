@@ -63,6 +63,13 @@ void Mixed_GL_Coarsener::interpolate(const mfem::BlockVector& coarse_vect,
     Pu_.Mult(coarse_vect.GetBlock(1), fine_vect.GetBlock(1));
 }
 
+void Mixed_GL_Coarsener::project(const mfem::BlockVector& fine_vect,
+                                  mfem::BlockVector& coarse_vect) const
+{
+    graph_coarsen_->GetQedges().Mult(fine_vect.GetBlock(0), coarse_vect.GetBlock(0));
+    Pu_.MultTranspose(fine_vect.GetBlock(1), coarse_vect.GetBlock(1));
+}
+
 void Mixed_GL_Coarsener::restrict(const mfem::Vector& fine_vect,
                                   mfem::Vector& coarse_vect) const
 {
@@ -75,6 +82,11 @@ void Mixed_GL_Coarsener::interpolate(const mfem::Vector& coarse_vect,
     Pu_.Mult(coarse_vect, fine_vect);
 }
 
+void Mixed_GL_Coarsener::project(const mfem::Vector& fine_vect,
+                                  mfem::Vector& coarse_vect) const
+{
+    Pu_.MultTranspose(fine_vect, coarse_vect);
+}
 
 const mfem::SparseMatrix& Mixed_GL_Coarsener::construct_Agg_cvertexdof_table() const
 {

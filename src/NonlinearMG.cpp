@@ -48,6 +48,8 @@ void NonlinearMG::Solve(const mfem::Vector& rhs, mfem::Vector& sol)
 
     rhs_[0].SetDataAndSize(rhs.GetData(), rhs.Size());
     sol_[0].SetDataAndSize(sol.GetData(), sol.Size());
+    converged_ = false;
+
     for (iter_ = 0; iter_ < max_num_iter_; iter_++)
     {
         if (cycle_ == Cycle::FMG)
@@ -59,33 +61,31 @@ void NonlinearMG::Solve(const mfem::Vector& rhs, mfem::Vector& sol)
             FAS_VCycle(0);
         }
 
-        double resid_norm = ResidualNorm(sol, rhs);
+        double resid = ResidualNorm(sol, rhs);
+        double rel_resid = resid / norm;
+
         if (myid_ == 0 && print_level_ > 0)
         {
-            std::cout << "Nonlinear MG iter " << iter_
-                      << ": residual norm = " << resid_norm << "\n";
+            std::cout << "Nonlinear MG iter " << iter_ << ":  rel resid = "
+                      << rel_resid << "  abs resid = " << resid << "\n";
         }
-        if (resid_norm < atol_ || resid_norm / norm < rtol_)
+
+        if (resid < atol_ || rel_resid < rtol_)
         {
+            converged_ = true;
+            iter_++;
             break;
         }
     }
 
-    converged_ = (iter_ != max_num_iter_);
     if (myid_ == 0 && !converged_ && print_level_ >= 0)
     {
         std::cout << "Warning: Nonlinear MG reached maximum number of iterations!\n";
     }
 }
 
-void NonlinearMG::Mult(const mfem::Vector& rhs, mfem::Vector& sol)
-{
-    Solve(rhs, sol);
-}
-
 void NonlinearMG::FAS_FMG()
 {
-
     // TODO: add smoothing step
     for (int level = 0; level < num_levels_ - 1; level++)
     {
@@ -111,8 +111,7 @@ void NonlinearMG::FAS_FMG()
         hierarchy_.Interpolate(level, help_[level], help_[level - 1]);
         sol_[level-1] -= help_[level-1];
     }
-
-    hierarchy_.Solve(0, rhs_[0], sol_[0]);
+    hierarchy_.Smoothing(0, rhs_[0], sol_[0]);
 }
 
 void NonlinearMG::FAS_VCycle(int level)

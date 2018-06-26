@@ -79,10 +79,12 @@ public:
     // Mixed form
     void restrict(const mfem::BlockVector& rhs, mfem::BlockVector& coarse_rhs) const;
     void interpolate(const mfem::BlockVector& rhs, mfem::BlockVector& fine_rhs) const;
+    void project(const mfem::BlockVector& vec, mfem::BlockVector& coarse_vec) const;
 
     // Primal form
     void restrict(const mfem::Vector& rhs, mfem::Vector& coarse_rhs) const;
     void interpolate(const mfem::Vector& rhs, mfem::Vector& fine_rhs) const;
+    void project(const mfem::Vector& vec, mfem::Vector& coarse_vec) const;
 
     const mfem::SparseMatrix& construct_Agg_cvertexdof_table() const;
     const mfem::SparseMatrix& construct_Agg_cedgedof_table() const;

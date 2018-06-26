@@ -149,6 +149,32 @@ std::unique_ptr<mfem::SparseMatrix> ElementMBuilder::BuildAssembledM(
     return CoarseM;
 }
 
+std::unique_ptr<mfem::SparseMatrix> ElementMBuilder::ComputedMdw(
+        const mfem::Vector& sigma) const
+{
+    mfem::Array<int> edofs;
+    mfem::Vector sigma_loc;
+    mfem::Vector Msigma_loc;
+
+    auto dMdw = make_unique<mfem::SparseMatrix>(Agg_cdof_edge_ref_.Width(),
+                                                Agg_cdof_edge_ref_.Height());
+    for (int Agg = 0; Agg < Agg_cdof_edge_ref_.Height(); Agg++)
+    {
+        GetTableRow(Agg_cdof_edge_ref_, Agg, edofs);
+        sigma.GetSubVector(edofs, sigma_loc);
+
+        const mfem::DenseMatrix& agg_M = CM_el_[Agg];
+        agg_M.Mult(sigma_loc, Msigma_loc);
+
+        for (int i = 0; i < agg_M.Size(); i++)
+        {
+            dMdw->Add(edofs[i], Agg, Msigma_loc[i]);
+        }
+    }
+    dMdw->Finalize();
+    return dMdw;
+}
+
 /// this method may be unnecessary, could just use GetTableRow()
 void CoefficientMBuilder::GetCoarseFaceDofs(
     const mfem::SparseMatrix& face_cdof, int face, mfem::Array<int>& local_coarse_dofs) const
@@ -375,6 +401,13 @@ std::unique_ptr<mfem::SparseMatrix> CoefficientMBuilder::BuildAssembledM(
     return std::move(CoarseM);
 }
 
+std::unique_ptr<mfem::SparseMatrix> CoefficientMBuilder::ComputedMdw(
+        const mfem::Vector& sigma) const
+{
+    std::cerr << "CoefficientMBuilder::ComputedMdw not implemented! \n";
+    std::abort();
+}
+
 FineMBuilder::FineMBuilder(const mfem::Vector& edge_weight, const mfem::SparseMatrix& Agg_edgedof)
     : Agg_edgedof_(Agg_edgedof)
 {
@@ -437,6 +470,26 @@ std::unique_ptr<mfem::SparseMatrix> FineMBuilder::BuildAssembledM(
     }
     M->Finalize();
     return M;
+}
+
+std::unique_ptr<mfem::SparseMatrix> FineMBuilder::ComputedMdw(
+        const mfem::Vector& sigma) const
+{
+    mfem::Array<int> edofs;
+    mfem::Vector sigma_loc;
+    auto dMdw = make_unique<mfem::SparseMatrix>(Agg_edgedof_.Width(), Agg_edgedof_.Height());
+    for (int Agg = 0; Agg < Agg_edgedof_.Height(); Agg++)
+    {
+        GetTableRow(Agg_edgedof_, Agg, edofs);
+        sigma.GetSubVector(edofs, sigma_loc);
+        RescaleVector(M_el_[Agg], sigma_loc);
+        for (int i = 0; i < sigma_loc.Size(); i++)
+        {
+            dMdw->Add(edofs[i], Agg, sigma_loc[i]);
+        }
+    }
+    dMdw->Finalize();
+    return dMdw;
 }
 
 Agg_cdof_edge_Builder::Agg_cdof_edge_Builder(std::vector<mfem::DenseMatrix>& edge_traces,

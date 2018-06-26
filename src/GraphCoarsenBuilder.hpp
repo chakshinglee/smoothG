@@ -60,6 +60,16 @@ public:
     */
     virtual std::unique_ptr<mfem::SparseMatrix> BuildAssembledM(
         const mfem::Vector& agg_weights_inverse) const = 0;
+
+    /**
+       @brief Compute d(M(w)sigma)/dw
+
+       Given sigma, treating M(w)sigma as vector-valued function of w,
+       compute d(M(w)sigma)/dw. Here w is the aggregate weight
+    */
+    virtual std::unique_ptr<mfem::SparseMatrix> ComputedMdw(
+        const mfem::Vector& sigma) const = 0;
+
 protected:
     unsigned int num_aggs_;
 };
@@ -110,6 +120,9 @@ public:
     virtual std::unique_ptr<mfem::SparseMatrix> BuildAssembledM(
         const mfem::Vector& agg_weights_inverse) const = 0;
 
+    virtual std::unique_ptr<mfem::SparseMatrix> ComputedMdw(
+        const mfem::Vector& sigma) const = 0;
+
     virtual bool NeedsCoarseVertexDofs() { return false; }
 
 protected:
@@ -158,6 +171,9 @@ public:
 
     virtual std::unique_ptr<mfem::SparseMatrix> BuildAssembledM(
         const mfem::Vector& agg_weights_inverse) const;
+
+    virtual std::unique_ptr<mfem::SparseMatrix> ComputedMdw(
+        const mfem::Vector& sigma) const;
 
     bool NeedsCoarseVertexDofs() { return true; }
 
@@ -215,6 +231,9 @@ public:
     virtual std::unique_ptr<mfem::SparseMatrix> BuildAssembledM(
         const mfem::Vector& agg_weights_inverse) const;
 
+    virtual std::unique_ptr<mfem::SparseMatrix> ComputedMdw(
+        const mfem::Vector& sigma) const;
+
 private:
     /// @todo remove this (GetTableRowCopy is the same thing?)
     void GetCoarseFaceDofs(
@@ -258,6 +277,8 @@ public:
         const mfem::Vector& agg_weights_inverse) const;
     const std::vector<mfem::Vector>& GetElementMatrices() const { return M_el_; }
     const mfem::SparseMatrix& GetAggEdgeDofTable() const { return Agg_edgedof_; }
+    virtual std::unique_ptr<mfem::SparseMatrix> ComputedMdw(
+        const mfem::Vector& sigma) const;
 private:
     std::vector<mfem::Vector> M_el_;
     const mfem::SparseMatrix& Agg_edgedof_;

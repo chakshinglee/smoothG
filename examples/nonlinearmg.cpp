@@ -40,10 +40,27 @@ enum Level { Fine = 0, Coarse };
 enum CoarseAdv { Upwind, RAP, FastRAP };
 enum SolveType { Newton, Picard };
 
+/**
+   @brief Two phase flow and transport time dependent operator
+
+   Given S^n from previous time step, the residual operator is
+   R(x) = R(v, p, S) = (M(S)v - D^Tp - h, Dv - f, M_s(S - S^n)/dt - Adv(v)F(S) - g)
+*/
+
 class TwoPhaseTDO : public mfem::TimeDependentOperator
 {
 public:
-    TwoPhaseTDO(int size) : mfem::TimeDependentOperator(size, 0.0, IMPLICIT) {}
+    TwoPhaseTDO(int size, SolveType solve_type);
+
+    // Solve for k such that R(x^n + dt*k) = R(x^{n+1}) = 0.
+    virtual void ImplicitSolve(const double dt, const mfem::Vector& x, mfem::Vector& k);
+
+    // update time step dt, previous state S^n and source term (h, f, g + M_s S^n / dt)
+    virtual void Update(double dt, const mfem::Vector& prev_state) = 0;
+
+    // Solve for k such that R(x^n + dt*k) = rhs, need to call Update(dt, x^n) first
+    virtual void Solve(const mfem::Vector& rhs, mfem::Vector& sol) = 0;
+
     virtual const mfem::Array<int>& GetOffsets() const = 0;
 
     ///@name Set solver parameters
@@ -56,48 +73,40 @@ public:
 
     ///@name Get results of iterative solve
     ///@{
-    int GetNumIterations() const { return iter_; }
-    double GetTiming() const { return timing_; }
-    bool IsConverged() const { return converged_; }
+    virtual int GetNumIterations() const { return iter_; }
+    virtual double GetTiming() const { return timing_; }
+    virtual bool IsConverged() const { return converged_; }
     ///@}
 protected:
     // default solver options
     int print_level_ = 0;
-    int max_num_iter_ = 10;
-    double rtol_ = 1e-9;
-    double atol_ = 1e-12;
+    int max_num_iter_ = 500;
+    double rtol_ = 1e-6;
+    double atol_ = 1e-8;
 
     int iter_;
     double timing_;
     bool converged_;
+
+    SolveType solve_type_;
+    mfem::Vector rhs_;     // always = 0, needed for ImplicitSolve
 };
 
-/**
-   @brief Two phase flow transport
-
-   Given S^n from previous time step, the residual operator is
-   R(x) = R(v, p, S) = (M(S)v - D^Tp - h, Dv - f, M_s(S - S^n)/dt - Adv(v)F(S) - g)
-*/
 class TwoPhaseOp : public TwoPhaseTDO
 {
 public:
-    TwoPhaseOp(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up, Level level);
+    TwoPhaseOp(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up,
+               Level level, SolveType solve_type);
 
     virtual ~TwoPhaseOp() = default;
 
-    // Solve for k such that R(x^n + dt*k) = R(x^{n+1}) = 0.
-    virtual void ImplicitSolve(const double dt, const mfem::Vector& x, mfem::Vector& k);
-
-    // Solve for k such that R(x^n + dt*k) = rhs, need to call Update(dt, x^n) first
-    void Solve(const mfem::Vector& rhs, mfem::Vector& k);
+    virtual void Update(double dt, const mfem::Vector& prev_state);
+    virtual void Solve(const mfem::Vector& rhs, mfem::Vector& sol);
+    virtual const mfem::Array<int>& GetOffsets() const { return offsets_; }
 
     // Compute the residual of the two-phase flow system Rx = R(x) = R(v, p, S).
-    void Mult(const mfem::Vector& x, mfem::Vector& Rx) const;
+    void Mult(const mfem::Vector& x, mfem::Vector& Rx);
 
-    // update time step dt, previous state S^n and source term (h, f, g + M_s S^n / dt)
-    void Update(double dt, const mfem::Vector& prev_state);
-
-    virtual const mfem::Array<int>& GetOffsets() const { return offsets_; }
 
 protected:
     // Setup needed for (advection) transport operator Adv
@@ -106,9 +115,15 @@ protected:
     void MakeTransportOp(const mfem::Vector& normal_flux);
     void MakeTransportSolver(const mfem::Vector& normal_flux);
 
+    // Compute d(Rv(v, S)) / dv,
+    void dRvdv(const mfem::Vector& normal_flux, const mfem::Vector& FS);
+
     // Solve R(x) = R(v, p, S) = rhs, input x is initial guess, output x is solution
     void PicardSolve(const mfem::BlockVector &rhs, mfem::BlockVector& x);
+    void PicardStep(const mfem::BlockVector &rhs, mfem::BlockVector& x);
     void NewtonSolve(const mfem::BlockVector &rhs, mfem::BlockVector& x);
+
+    double ResidualNorm(const mfem::Vector& sol, const mfem::Vector& rhs);
 
     MPI_Comm comm_;
     int myid_;
@@ -121,13 +136,18 @@ protected:
     mfem::SparseMatrix f_tf_e_offd_;
     mfem::Vector M_s_;   // mass matrix for saturation
 
-    SolveType solve_type_;
-
     ///@name components for transport_op_
     ///@{
     HYPRE_Int* tran_op_colmap_;
     mfem::Array<int> tran_op_starts_;
     unique_ptr<mfem::HypreParMatrix> transport_op_;
+    ///@}
+
+    ///@name components for transport_op_
+    ///@{
+    HYPRE_Int num_tf_;
+    HYPRE_Int* tf_starts_;
+    unique_ptr<mfem::HypreParMatrix> dRvdv_;
     ///@}
 
     mfem::Array<int> offsets_;
@@ -141,19 +161,17 @@ protected:
     unique_ptr<mfem::BlockVector> source_0_;  // source term at time 0 (h, f, g)
     unique_ptr<mfem::BlockVector> source_t_;  // current source (h, f, g + M_s S^n/dt)
     mfem::BlockVector prev_state_;            // reference to states at previous step
-    unique_ptr<mfem::BlockVector> rhs_;       // always = 0, needed for ImplicitSolve
+    mfem::Vector residual_;
 
     double dt_;                               // time step size
+    friend class TPH;
 };
-
-void TotalMobility(const mfem::Vector& S, mfem::Vector& LamS);
-void FractionalFlow(const mfem::Vector& S, mfem::Vector& FS);
 
 // two phase hierarchy
 class TPH : public Hierarchy
 {
 public:
-    TPH(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up);
+    TPH(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up, SolveType solve_type);
     TPH() = delete;
 
     // Compute resid = R(in)
@@ -175,27 +193,45 @@ private:
     mutable std::vector<mfem::BlockVector> helper_;
     std::vector<mfem::Array<int>> flow_offsets_;
     mfem::Vector prev_state_coarse_;
+    mfem::Vector PuTPu_diag;
 };
 
 // two-phase flow and transport solver using nonlinear multigrid
 class NMG_TP : public TwoPhaseTDO
 {
 public:
-    NMG_TP(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up, Cycle cycle);
+    NMG_TP(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up,
+           Cycle cycle, SolveType solve_type);
     NMG_TP() = delete;
 
-    virtual void ImplicitSolve(const double dt, const mfem::Vector& x, mfem::Vector& k);
+    virtual void Update(double dt, const mfem::Vector& prev_state)
+    {
+        tph_.Update(dt, prev_state);
+    }
+
+    virtual void Solve(const mfem::Vector& rhs, mfem::Vector& sol)
+    {
+        nl_mg_.Solve(rhs, sol);
+    }
+
     virtual const mfem::Array<int>& GetOffsets() const { return tph_.GetOffsets(); }
 
     virtual void SetPrintLevel(int print_level) { nl_mg_.SetPrintLevel(print_level); }
     virtual void SetMaxIter(int max_num_iter) { nl_mg_.SetMaxIter(max_num_iter); }
     virtual void SetRelTol(double rtol) { nl_mg_.SetRelTol(rtol); }
     virtual void SetAbsTol(double atol) { nl_mg_.SetAbsTol(atol); }
+
+    virtual int GetNumIterations() const { return nl_mg_.GetNumIterations(); }
+    virtual bool IsConverged() const { return nl_mg_.IsConverged(); }
 private:
     TPH tph_;
     NonlinearMG nl_mg_;
-    mfem::Vector rhs_;     // always = 0, needed for ImplicitSolve
 };
+
+void TotalMobility(const mfem::Vector& S, mfem::Vector& LamS);
+void FractionalFlow(const mfem::Vector& S, mfem::Vector& FS);
+void TotalMobilityDerivative(const mfem::Vector& S, mfem::Vector& dLamS);
+void FractionalFlowDerivative(const mfem::Vector& S, mfem::Vector& dFS);
 
 mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC &up, double delta_t,
                           double total_time, int vis_step, Level level,
@@ -367,22 +403,17 @@ int main(int argc, char* argv[])
     fvupscale.PrintInfo();
     fvupscale.ShowSetupTime();
     fvupscale.MakeFineSolver();
-    if (hybridization)
-    {
-        fvupscale.SetAbsTol(1e-15);
-        fvupscale.SetRelTol(1e-12);
-    }
 
     const bool use_mg = true;
 
     auto S_mg = TwoPhaseFlow(
                 spe10problem, fvupscale, delta_t, total_time, vis_step,
-                Fine, "saturation based on fastRAP", use_mg);
+                Fine, "saturation solved by nonlinear MG", use_mg);
 
     // Fine scale transport based on fine flux
     auto S_fine = TwoPhaseFlow(
                 spe10problem, fvupscale, delta_t, total_time, vis_step,
-                Fine, "saturation based on fine scale upwind", !use_mg);
+                Fine, "saturation solved by Picard iteration", !use_mg);
 
 //    auto S_coarse = TwoPhaseFlow(
 //                spe10problem, fvupscale, delta_t, total_time, vis_step,
@@ -392,15 +423,162 @@ int main(int argc, char* argv[])
     double sat_err2 = CompareError(comm, S_mg, S_fine);
     if (myid == 0)
     {
-        std::cout << "Saturation errors: " << sat_err2 << ", " << sat_err2 << "\n";
+//        std::cout << "Saturation errors: " << sat_err << "\n";
+        std::cout << "Saturation errors: " << sat_err2 << "\n";
     }
 
     return EXIT_SUCCESS;
 }
 
-TwoPhaseOp::TwoPhaseOp(const SPE10Problem &spe10problem, FiniteVolumeMLMC &up, Level level)
-    : TwoPhaseTDO(up.GetNumTotalDofs(level)+up.GetNumVertexDofs(level)),
-      comm_(up.GetComm()), level_(level), up_(up), solve_type_(Picard), transport_solver_(comm_)
+mfem::socketstream sout;
+int option = 0;
+bool setup = true;
+mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up,
+                          double delta_t, double total_time, int vis_step, Level level,
+                          const std::string& caption, bool use_mg)
+{
+    option++;
+
+    int myid;
+    MPI_Comm_rank(up.GetComm(), &myid);
+
+    mfem::StopWatch chrono;
+
+    chrono.Clear();
+    MPI_Barrier(up.GetComm());
+    chrono.Start();
+
+    double time = 0.0;
+
+    unique_ptr<TwoPhaseTDO> time_dependent_op;
+    if (use_mg)
+    {
+        assert(level == Fine);
+        time_dependent_op = make_unique<NMG_TP>(spe10problem, up, FMG, Picard);
+    }
+    else
+    {
+        time_dependent_op = make_unique<TwoPhaseOp>(spe10problem, up, level, Picard);
+    }
+//    time_dependent_op->SetPrintLevel(1);
+    time_dependent_op->SetMaxIter(50);
+    time_dependent_op->SetRelTol(1e-6);
+    time_dependent_op->SetAbsTol(1e-8);
+    time_dependent_op->SetTime(time);
+
+    mfem::BackwardEulerSolver ode_solver;
+    ode_solver.Init(*time_dependent_op);
+
+    // state = (flux, pressure, saturation)
+    mfem::BlockVector state(time_dependent_op->GetOffsets());
+    state = 0.0;
+    mfem::BlockVector previous_state(state);
+
+    // visualization for S
+    mfem::Vector S_vis;
+    if (level == Fine)
+    {
+        S_vis.SetDataAndSize(state.GetBlock(1).GetData(), state.BlockSize(1));
+    }
+    else
+    {
+        S_vis.SetSize(spe10problem.GetVertexRHS().Size());
+    }
+
+    if (vis_step && setup)
+    {
+        if (level == Coarse)
+        {
+            up.Interpolate(state.GetBlock(1), S_vis);
+        }
+        spe10problem.VisSetup(sout, S_vis, 0.0, 1.0, caption);
+//        setup = false;
+    }
+
+    bool done = false;
+    double dt_real = std::min(delta_t, total_time - time);
+    double nonlinear_iter = 0.0;
+    int ti = 0;
+    for ( ; !done; )
+    {
+        dt_real = std::min(std::min(delta_t, total_time - time), dt_real * 2.0);
+        previous_state = state;
+        ode_solver.Step(state, time, dt_real);
+        nonlinear_iter += time_dependent_op->GetNumIterations();
+        while (!time_dependent_op->IsConverged()) // TODO: add smallest step size condition
+        {
+            time -= dt_real;
+            dt_real /= 2.0;
+            if (myid == 0)
+            {
+                std::cout << "Restart nonlinear solve with time step size " << dt_real << "\n";
+            }
+            state = previous_state;
+            ode_solver.Step(state, time, dt_real);
+            nonlinear_iter += time_dependent_op->GetNumIterations();
+        }
+        ti++;
+
+        done = (time >= total_time - 1e-8 * delta_t);
+
+        if (myid == 0)
+        {
+            std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
+        }
+        if (vis_step && (done || ti % vis_step == 0))
+        {
+            if (level == Coarse)
+            {
+                up.Interpolate(state.GetBlock(1), S_vis);
+            }
+            spe10problem.VisUpdate(sout, S_vis);
+        }
+    }
+    MPI_Barrier(up.GetComm());
+    if (myid == 0)
+    {
+        std::cout << "Time stepping done in " << chrono.RealTime() << "s.\n"
+                  << "Total # nonlinear iter = " << nonlinear_iter << ".\n";
+        std::cout << "Average # nonlinear iter = " << nonlinear_iter/ti << ".\n";
+    }
+
+    mfem::Vector out;
+    if (level == Coarse)
+    {
+        up.Interpolate(state.GetBlock(1), S_vis);
+        out = S_vis;
+    }
+    else
+    {
+        out = state.GetBlock(1);
+    }
+
+    return out;
+}
+
+TwoPhaseTDO::TwoPhaseTDO(int size, SolveType solve_type)
+    : mfem::TimeDependentOperator(size, 0.0, IMPLICIT), solve_type_(solve_type), rhs_(size)
+{
+    rhs_ = 0.0;
+}
+
+void TwoPhaseTDO::ImplicitSolve(const double dt, const mfem::Vector& x, mfem::Vector& k)
+{
+    Update(dt, x);
+    k = x;
+    Solve(rhs_, k);
+
+    if (solve_type_ == Picard)
+    {
+        k -= x;
+        k /= dt;
+    }
+}
+
+TwoPhaseOp::TwoPhaseOp(const SPE10Problem &spe10problem, FiniteVolumeMLMC &up,
+                       Level level, SolveType solve_type)
+    : TwoPhaseTDO(up.GetNumTotalDofs(level)+up.GetNumVertexDofs(level), solve_type),
+      comm_(up.GetComm()), level_(level), up_(up), transport_solver_(comm_)
 {
     MPI_Comm_rank(comm_, &myid_);
     offsets_.SetSize(3, 0);
@@ -438,15 +616,15 @@ TwoPhaseOp::TwoPhaseOp(const SPE10Problem &spe10problem, FiniteVolumeMLMC &up, L
         flow_solver_ = make_unique<UpscaleCoarseBlockSolve>(up_);
     }
     source_0_->GetBlock(1) *= -1.0;  // g = -f
-
     source_t_ = make_unique<mfem::BlockVector>(*source_0_);
-    rhs_ = make_unique<mfem::BlockVector>(offsets_);
-    *rhs_ = 0.0;
 
-//    up_.SetMaxIter(level_ == Fine ? 10 : 5000);
+    residual_.SetSize(offsets_.Last());
+    rhs_.SetSize(offsets_.Last());
+    rhs_ = 0.0;
+
     up_.SetPrintLevel(-1);
 
-    MakeTransportOp(rhs_->GetBlock(0));
+//    MakeTransportOp(rhs_->GetBlock(0));
     solver_ = make_unique<mfem::BlockOperator>(offsets_);
     solver_->SetBlock(0, 0, flow_solver_.get());
 
@@ -459,12 +637,25 @@ TwoPhaseOp::TwoPhaseOp(const SPE10Problem &spe10problem, FiniteVolumeMLMC &up, L
     transport_solver_.SetAbsTol(atol_);
 }
 
-void TwoPhaseOp::Mult(const mfem::Vector& x, mfem::Vector &Rx) const
+void TwoPhaseOp::Mult(const mfem::Vector& x, mfem::Vector &Rx)
 {
+    assert(offsets_.Last() == Rx.Size());
+    assert(offsets_.Last() == x.Size());
     mfem::BlockVector block_x(x.GetData(), offsets_);
     mfem::BlockVector block_Rx(Rx.GetData(), offsets_);
 
     block_Rx.GetBlock(0) = 0.0;
+//    if (level_ == Fine)
+//    {
+//        up_.MultFine(block_x.GetBlock(0), block_Rx.GetBlock(0));
+//    }
+//    else
+//    {
+//        up_.MultCoarse(block_x.GetBlock(0), block_Rx.GetBlock(0));
+//    }
+//    block_Rx.GetBlock(0) -= source_t_->GetBlock(0);
+
+    MakeTransportOp(block_x.GetBlock(0));
 
     block_Rx.GetBlock(1) = block_x.GetBlock(1);
     RescaleVector(M_s_, block_Rx.GetBlock(1));
@@ -474,77 +665,85 @@ void TwoPhaseOp::Mult(const mfem::Vector& x, mfem::Vector &Rx) const
     transport_op_->Mult(1.0, frac_flow_, 1.0, block_Rx.GetBlock(1));
 }
 
-// TODO: unify Implicit solve
-void TwoPhaseOp::ImplicitSolve(const double dt, const mfem::Vector& x, mfem::Vector& k)
+double TwoPhaseOp::ResidualNorm(const mfem::Vector& sol, const mfem::Vector& rhs)
 {
-    Update(dt, x);
-    k = x;
-    Solve(*rhs_, k);
-
-    if (solve_type_ == Picard)
-    {
-        k -= x;
-        k /= dt;
-    }
+    residual_ = 0.0;
+    Mult(sol, residual_);
+    residual_ -= rhs;
+    return mfem::ParNormlp(residual_, 2, comm_);
 }
 
-void TwoPhaseOp::Solve(const mfem::Vector& rhs, mfem::Vector& k)
+void TwoPhaseOp::Solve(const mfem::Vector& rhs, mfem::Vector& sol)
 {
     assert(solve_type_ == Newton || solve_type_ == Picard);
 
-    mfem::BlockVector block_k(k.GetData(), offsets_);
+    mfem::BlockVector block_sol(sol.GetData(), offsets_);
     mfem::BlockVector block_rhs(rhs.GetData(), offsets_);
     if (solve_type_ == Picard)
     {
-        PicardSolve(block_rhs, block_k);
+        PicardSolve(block_rhs, block_sol);
     }
     else
     {
-        NewtonSolve(block_rhs, block_k);
+        NewtonSolve(block_rhs, block_sol);
     }
 }
 
 void TwoPhaseOp::PicardSolve(const mfem::BlockVector& rhs, mfem::BlockVector& x)
 {
-    *source_t_ += rhs;
-    double norm = mfem::ParNormlp(*source_t_, 2, comm_);
+    mfem::BlockVector adjusted_source(*source_t_);
+
+    adjusted_source += rhs;
+    if (max_num_iter_ == 1)
+    {
+        PicardStep(adjusted_source, x);
+    }
+    else
+    {
+        double norm = mfem::ParNormlp(adjusted_source, 2, comm_);
+        converged_ = false;
+        for (iter_ = 0; iter_ < max_num_iter_; iter_++)
+        {
+            PicardStep(adjusted_source, x);
+
+            double resid = ResidualNorm(x, rhs);
+            double rel_resid = resid / norm;
+
+            if (myid_ == 0 && print_level_ > 0)
+            {
+                std::cout << "Picard iter " << iter_ << ":  rel resid = "
+                          << rel_resid << "  abs resid = " << resid << "\n";
+            }
+
+            if (resid < atol_ || rel_resid < rtol_)
+            {
+                converged_ = true;
+                iter_++;
+                break;
+            }
+        }
+
+        if (myid_ == 0 && !converged_ && print_level_ >= 0)
+        {
+            std::cout << "Warning: Picard iteration reached maximum number of iterations!\n";
+        }
+    }
+}
+
+void TwoPhaseOp::PicardStep(const mfem::BlockVector& rhs, mfem::BlockVector& x)
+{
+    // solve pressure equation
+    TotalMobility(x.GetBlock(1), tot_mob_);
+    up_.RescaleCoefficient(level_, tot_mob_);
+    flow_solver_->Mult(rhs.GetBlock(0), x.GetBlock(0));
+
+    // solve saturation equation
+    MakeTransportOp(x.GetBlock(0));
     FractionalFlow(x.GetBlock(1), frac_flow_);
-
-    mfem::BlockVector residual(offsets_);
-    for (iter_ = 0; iter_ < max_num_iter_; iter_++)
-    {
-        TotalMobility(x.GetBlock(1), tot_mob_);
-        up_.RescaleCoefficient(level_, tot_mob_);
-        flow_solver_->Mult(source_t_->GetBlock(0), x.GetBlock(0));
-
-        // TransportOp(S) = Adv F(S)
-        MakeTransportOp(x.GetBlock(0));
-
-        x.GetBlock(1) = source_t_->GetBlock(1);
-        transport_op_->Mult(-1.0, frac_flow_, 1.0, x.GetBlock(1));
-        InvRescaleVector(M_s_, x.GetBlock(1));
-        x.GetBlock(1) *= dt_;
-
-        Mult(x, residual); // Note: frac_flow_ is updated in Mult
-
-        double resid = mfem::ParNormlp(residual, 2, comm_);
-        double rel_resid = resid / norm;
-        if (myid_ == 0 && print_level_ > 0)
-        {
-            std::cout << "Picard iter " << iter_
-                      << ": relative residual norm = " << rel_resid << "\n";
-        }
-        if (resid < atol_ || rel_resid < rtol_)
-        {
-            break;
-        }
-    }
-
-    converged_ = (iter_ != max_num_iter_);
-    if (myid_ == 0 && !converged_ && print_level_ >= 0)
-    {
-        std::cout << "Warning: Picard iteration reached maximum number of iterations!\n";
-    }
+    x.GetBlock(1) = rhs.GetBlock(1);
+    transport_op_->Mult(-1.0, frac_flow_, 1.0, x.GetBlock(1));
+    InvRescaleVector(M_s_, x.GetBlock(1));
+    x.GetBlock(1) *= dt_;
 }
 
 void TwoPhaseOp::NewtonSolve(const mfem::BlockVector& rhs, mfem::BlockVector& x)
@@ -565,6 +764,9 @@ void TwoPhaseOp::SetupTransportOp(const mfem::SparseMatrix& elem_facet,
     facet_truefacet_elem_->GetOffd(f_tf_e_offd_, tran_op_colmap_);
 
     facet_truefacet.GetDiag(f_tf_diag_);
+
+    num_tf_ = facet_truefacet.N();
+    tf_starts_ = facet_truefacet.GetColStarts();
 }
 
 void TwoPhaseOp::MakeTransportOp(const mfem::Vector& normal_flux)
@@ -635,8 +837,8 @@ void TwoPhaseOp::MakeTransportOp(const mfem::Vector& normal_flux)
             }
         }
     }
-    diag.Finalize(0);
-    offd.Finalize(0);
+    diag.Finalize();
+    offd.Finalize();
 
     transport_op_ = make_unique<mfem::HypreParMatrix>(
                 comm_, tran_op_starts_.Last(), tran_op_starts_.Last(),
@@ -644,6 +846,62 @@ void TwoPhaseOp::MakeTransportOp(const mfem::Vector& normal_flux)
 
     // Adjust ownership
     transport_op_->SetOwnerFlags(3, 3, 0);
+    diag.LoseData();
+    offd.LoseData();
+}
+
+void TwoPhaseOp::dRvdv(const mfem::Vector& normal_flux, const mfem::Vector& FS)
+{
+    mfem::Array<int> facedofs;
+    mfem::Vector normal_flux_loc;
+    mfem::Vector normal_flux_fine;
+
+    mfem::SparseMatrix diag(f_tf_diag_.Width(), f_tf_e_diag_.Width());
+    mfem::SparseMatrix offd(f_tf_diag_.Width(), f_tf_e_offd_.Width());
+    for (int face = 0; face < f_tf_diag_.Height(); face++)
+    {
+        double normal_flux_i_0 = 0.0;
+        double normal_flux_i_1 = 0.0;
+
+        if (level_ == Fine)
+        {
+            // confusing direction, just be consistent with MakeTransportOp
+            normal_flux_i_0 = normal_flux(face) < 0 ? -1.0 : 0.0;
+            normal_flux_i_1 = -1.0 - normal_flux_i_0;
+        }
+
+        assert(f_tf_diag_.RowSize(face) == 1);
+        int trueface = f_tf_diag_.GetRowColumns(face)[0];
+
+        const int* elem_pair = f_tf_e_diag_.GetRowColumns(face);
+        diag.Set(trueface, elem_pair[0], normal_flux_i_0);
+
+        if (f_tf_e_diag_.RowSize(face) == 2) // facet is interior
+        {
+            diag.Set(trueface, elem_pair[1], normal_flux_i_1);
+        }
+        else
+        {
+            if (f_tf_e_offd_.RowSize(face) > 0) // facet is shared
+            {
+                assert(f_tf_e_offd_.RowSize(face) == 1);
+                const int offd_elem = f_tf_e_offd_.GetRowColumns(face)[0];
+                if (f_tf_diag_.RowSize(face) > 0) // facet is owned by local proc
+                {
+                    offd.Set(trueface, offd_elem, normal_flux_i_1);
+                }
+            }
+        }
+    }
+    diag.Finalize();
+    offd.Finalize();
+
+    dRvdv_ = make_unique<mfem::HypreParMatrix>(
+                comm_, num_tf_, tran_op_starts_.Last(),
+                tf_starts_, tran_op_starts_, &diag, &offd, tran_op_colmap_);
+
+    // Adjust ownership
+    dRvdv_->SetOwnerFlags(3, 3, 0);
     diag.LoseData();
     offd.LoseData();
 }
@@ -670,183 +928,29 @@ void TwoPhaseOp::Update(double dt, const mfem::Vector& prev_state)
     source_t_->GetBlock(1) += prev_sat;
 }
 
-mfem::socketstream sout;
-int option = 0;
-bool setup = true;
-mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up,
-                          double delta_t, double total_time, int vis_step, Level level,
-                          const std::string& caption, bool use_mg)
-{
-    option++;
-
-    int myid;
-    MPI_Comm_rank(up.GetComm(), &myid);
-
-    mfem::StopWatch chrono;
-
-    chrono.Clear();
-    MPI_Barrier(up.GetComm());
-    chrono.Start();
-
-    double time = 0.0;
-
-    unique_ptr<TwoPhaseTDO> time_dependent_op;
-    if (use_mg)
-    {
-        assert(level == Fine);
-        time_dependent_op = make_unique<NMG_TP>(spe10problem, up, V_CYCLE);
-//        time_dependent_op->SetMaxIter(1);
-    }
-    else
-    {
-        time_dependent_op = make_unique<TwoPhaseOp>(spe10problem, up, level);
-    }
-    time_dependent_op->SetTime(time);
-
-    mfem::BackwardEulerSolver ode_solver;
-    ode_solver.Init(*time_dependent_op);
-
-    // state = (flux, pressure, saturation)
-    mfem::BlockVector state(time_dependent_op->GetOffsets());
-    state = 0.0;
-    mfem::BlockVector previous_state(state);
-
-    // visualization for S
-    mfem::Vector S_vis;
-    if (level == Fine)
-    {
-        S_vis.SetDataAndSize(state.GetBlock(1).GetData(), state.BlockSize(1));
-    }
-    else
-    {
-        S_vis.SetSize(spe10problem.GetVertexRHS().Size());
-    }
-
-    if (vis_step && setup)
-    {
-        if (level == Coarse)
-        {
-            up.Interpolate(state.GetBlock(1), S_vis);
-        }
-        spe10problem.VisSetup(sout, S_vis, 0.0, 1.0, caption);
-//        setup = false;
-    }
-
-//    std::vector<mfem::Vector> sats(well_vertices.Size(), mfem::Vector(total_time / delta_t + 2));
-//    for (unsigned int i = 0; i < sats.size(); i++)
-//    {
-//        sats[i] = 0.0;
-//    }
-
-    bool done = false;
-    double dt_real = std::min(delta_t, total_time - time);
-    for (int ti = 0; !done; )
-    {
-        dt_real = std::min(std::min(delta_t, total_time - time), dt_real * 2.0);
-        previous_state = state;
-        ode_solver.Step(state, time, dt_real);
-        while (!time_dependent_op->IsConverged()) // TODO: add smallest step size condition
-        {
-            time -= dt_real;
-            dt_real /= 2.0;
-            if (myid == 0)
-            {
-                std::cout << "Restart nonlinear solve with time step size " << dt_real << "\n";
-            }
-            state = previous_state;
-            ode_solver.Step(state, time, dt_real);
-        }
-        ti++;
-
-        //        for (unsigned int i = 0; i < sats.size(); i++)
-        //        {
-        //            if (level == Coarse)
-        //            {
-        //                up.Interpolate(S, S_vis);
-        //                sats[i](ti) = S_vis(well_vertices[i]);
-        //            }
-        //            else
-        //            {
-        //                sats[i](ti) = S(well_vertices[i]);
-        //            }
-        //        }
-
-        done = (time >= total_time - 1e-8 * delta_t);
-
-        if (myid == 0)
-        {
-            std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
-        }
-        if (vis_step && (done || ti % vis_step == 0))
-        {
-            if (level == Coarse)
-            {
-                up.Interpolate(state.GetBlock(1), S_vis);
-            }
-            spe10problem.VisUpdate(sout, S_vis);
-        }
-    }
-    MPI_Barrier(up.GetComm());
-    if (myid == 0)
-    {
-        std::cout << "Time stepping done in " << chrono.RealTime() << "s.\n";
-    }
-
-    mfem::Vector out;
-    if (level == Coarse)
-    {
-        up.Interpolate(state.GetBlock(1), S_vis);
-        out = S_vis;
-    }
-    else
-    {
-        out = state.GetBlock(1);
-    }
-
-//    for (unsigned int i = 0; i < sats.size(); i++)
-//    {
-//        std::ofstream ofs("sat_prod_" + std::to_string(i) + "_" + std::to_string(myid)
-//                          + "_" + std::to_string(option) + ".txt");
-//        sats[i].Print(ofs, 1);
-//    }
-
-    return out;
-}
-
-void TotalMobility(const mfem::Vector& S, mfem::Vector& LamS)
-{
-    for (int i = 0; i < S.Size(); i++)
-    {
-        double S_w = S(i);
-        double S_o = 1.0 - S_w;
-        LamS(i)  = S_w * S_w + S_o * S_o / 5.0;
-    }
-}
-
-void FractionalFlow(const mfem::Vector& S, mfem::Vector& FS)
-{
-    for (int i = 0; i < S.Size(); i++)
-    {
-        double S_w = S(i);
-        double S_o = 1.0 - S_w;
-        double Lam_S  = S_w * S_w + S_o * S_o / 5.0;
-        FS(i) = S_w * S_w / Lam_S;
-    }
-}
-
-TPH::TPH(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up)
+TPH::TPH(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up, SolveType solve_type)
     : Hierarchy(up.GetComm(), 2), up_(up), ops_(2), helper_(2), flow_offsets_(2)
 {
-    ops_[0] = make_unique<TwoPhaseOp>(spe10problem, up_, Fine);
-    ops_[1] = make_unique<TwoPhaseOp>(spe10problem, up_, Coarse);
+    ops_[0] = make_unique<TwoPhaseOp>(spe10problem, up_, Fine, solve_type);
+    ops_[1] = make_unique<TwoPhaseOp>(spe10problem, up_, Coarse, solve_type);
     ops_[0]->SetPrintLevel(-1);
     ops_[1]->SetPrintLevel(-1);
     ops_[0]->SetMaxIter(1);
-    ops_[1]->SetMaxIter(1);
+    ops_[1]->SetMaxIter(10);
+//    ops_[1]->SetRelTol(1e-7);
+//    ops_[1]->SetRelTol(1e-9);
+
+//    up_.SetMaxIter(1);
+//    up_.SetRelTol(1e-12);
+//    up_.SetAbsTol(1e-15);
 
     up_.FineBlockOffsets(flow_offsets_[0]);
     up_.CoarseBlockOffsets(flow_offsets_[1]);
     prev_state_coarse_.SetSize(ops_[1]->GetOffsets().Last());
+
+    auto PuT = smoothg::Transpose(up_.GetPu());
+    auto PuTPu = smoothg::Mult(PuT, up_.GetPu());
+    PuTPu.GetDiag(PuTPu_diag);
 }
 
 void TPH::Mult(int level, const mfem::Vector& x, mfem::Vector& Rx) const
@@ -893,12 +997,14 @@ void TPH::Project(int level, const mfem::Vector& fine, mfem::Vector& coarse) con
 
     up_.Project(helper_00, helper_10);
     up_.Project(helper_[0].GetBlock(1), helper_[1].GetBlock(1));
+    InvRescaleVector(PuTPu_diag, helper_[1].GetBlock(1));
 }
 
 void TPH::Smoothing(int level, const mfem::Vector& in, mfem::Vector& out) const
 {
+//    up_.SetMaxIter(1);
     ops_[level]->Solve(in, out);
-//    out = in;
+//    up_.SetMaxIter(5000);
 }
 
 void TPH::Update(double dt, const mfem::Vector& prev_state)
@@ -908,20 +1014,56 @@ void TPH::Update(double dt, const mfem::Vector& prev_state)
     ops_[1]->Update(dt, prev_state_coarse_);
 }
 
-NMG_TP::NMG_TP(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up, Cycle cycle)
-    : TwoPhaseTDO(up.GetNumTotalDofs(0)+up.GetNumVertexDofs(0)),
-      tph_(spe10problem, up), nl_mg_(tph_, cycle), rhs_(height)
+NMG_TP::NMG_TP(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up,
+               Cycle cycle, SolveType solve_type)
+    : TwoPhaseTDO(up.GetNumTotalDofs(0)+up.GetNumVertexDofs(0), solve_type),
+      tph_(spe10problem, up, solve_type), nl_mg_(tph_, cycle)
 {
     nl_mg_.SetPrintLevel(0);
-    rhs_ = 0.0;
 }
 
-void NMG_TP::ImplicitSolve(const double dt, const mfem::Vector& x, mfem::Vector& k)
+// LamS = S^2 + ((1-S)^2) / 5
+void TotalMobility(const mfem::Vector& S, mfem::Vector& LamS)
 {
-    tph_.Update(dt, x);
-    k = x;
-    nl_mg_.Solve(rhs_, k);
-    k -= x;
-    k /= dt;
-    converged_ = nl_mg_.IsConverged();
+    for (int i = 0; i < S.Size(); i++)
+    {
+        double S_w = S(i);
+        double S_o = 1.0 - S_w;
+        LamS(i)  = S_w * S_w + S_o * S_o / 5.0;
+    }
+}
+
+// FS = S^2 / LamS
+void FractionalFlow(const mfem::Vector& S, mfem::Vector& FS)
+{
+    for (int i = 0; i < S.Size(); i++)
+    {
+        double S_w = S(i);
+        double S_o = 1.0 - S_w;
+        double LamS  = S_w * S_w + S_o * S_o / 5.0;
+        FS(i) = S_w * S_w / LamS;
+    }
+}
+
+// dLamS = 2 S + 2 (1-S) / 5
+void TotalMobilityDerivative(const mfem::Vector& S, mfem::Vector& dLamS)
+{
+    const double constant1 = 12.0 / 5.0;
+    const double constant2 = constant1 - 2.0;
+    for (int i = 0; i < S.Size(); i++)
+    {
+        dLamS(i)  = constant1 * S(i) - constant2;
+    }
+}
+
+// dFS = 10 S (1-S) / (6 S^2 - 2S + 1)^2 = 0.4 S (1-S) / LamS^2
+void FractionalFlowDerivative(const mfem::Vector& S, mfem::Vector& dFS)
+{
+    for (int i = 0; i < S.Size(); i++)
+    {
+        double S_w = S(i);
+        double S_o = 1.0 - S_w;
+        double LamS  = S_w * S_w + S_o * S_o / 5.0;
+        dFS(i) = 0.4 * S_w * S_o / (LamS * LamS);
+    }
 }

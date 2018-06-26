@@ -251,7 +251,7 @@ void HybridSolver::Init(const mfem::SparseMatrix& face_edgedof,
                 ess_multiplier_dofs_[i] = 0;
         }
     }
-    MPI_Allreduce(&ess_mult_bc_loc, &ess_multiplier_bc_, 1, MPI::BOOL, MPI_LAND, comm_);
+    MPI_Allreduce(&ess_mult_bc_loc, &ess_multiplier_bc_, 1, MPI::BOOL, MPI_LOR, comm_);
 
     cg_ = make_unique<mfem::CGSolver>(comm_);
     cg_->SetPrintLevel(print_level_);
@@ -804,7 +804,6 @@ void HybridSolver::BuildSpectralAMGePreconditioner()
 void HybridSolver::BuildParallelSystemAndSolver()
 {
     HybridSystem_->Finalize();
-    HybridSystemElim_ = make_unique<mfem::SparseMatrix>(*HybridSystem_, false);
     if (ess_multiplier_bc_)
     {
         // eliminate the essential dofs and save the eliminated part
@@ -917,7 +916,7 @@ void HybridSolver::SetMaxIter(int max_num_iter)
 
 void HybridSolver::SetRelTol(double rtol)
 {
-    MixedLaplacianSolver::SetMaxIter(rtol);
+    MixedLaplacianSolver::SetRelTol(rtol);
 
     cg_->SetRelTol(rtol_);
 }

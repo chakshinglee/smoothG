@@ -107,6 +107,7 @@ MixedMatrix::MixedMatrix(std::unique_ptr<MBuilder> mbuilder,
     : D_(std::move(D)), W_(std::move(W)), edge_d_td_(&edge_d_td),
       edge_td_d_(edge_d_td.Transpose()), mbuilder_(std::move(mbuilder))
 {
+    M_ = mbuilder_->BuildAssembledM();
     GenerateRowStarts();
 }
 
@@ -162,6 +163,23 @@ void MixedMatrix::Init(const mfem::SparseMatrix& vertex_edge,
 
     D_ = ConstructD(vertex_edge, edge_d_td);
     GenerateRowStarts();
+}
+
+void MixedMatrix::Mult(const mfem::Vector& x, mfem::Vector& y) const
+{
+    y = 0.0;
+
+    mfem::BlockVector block_x(x.GetData(), GetBlockOffsets());
+    mfem::BlockVector block_y(y.GetData(), GetBlockOffsets());
+
+    GetM().Mult(block_x.GetBlock(0), block_y.GetBlock(0));
+    GetD().AddMultTranspose(block_x.GetBlock(1), block_y.GetBlock(0), 1.0);
+    GetD().Mult(block_x.GetBlock(0), block_y.GetBlock(1));
+
+    mfem::Vector true_y_block0(edge_td_d_->Height());
+    true_y_block0 = 0.0;
+    edge_td_d_->Mult(block_y.GetBlock(0), true_y_block0);
+    edge_d_td_->Mult(true_y_block0, block_y.GetBlock(0));
 }
 
 void MixedMatrix::GenerateRowStarts()

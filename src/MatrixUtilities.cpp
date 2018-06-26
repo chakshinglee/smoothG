@@ -1134,4 +1134,19 @@ mfem::Vector ExtractRowVector(const mfem::SparseMatrix& mat, int i)
     return out;
 }
 
+double FrobeniusNorm(const mfem::SparseMatrix& mat, MPI_Comm comm)
+{
+    double local_norm_sq = 0.0;
+    for (int j = 0; j < mat.NumNonZeroElems(); j++)
+    {
+        double entry = mat.GetData()[j];
+        local_norm_sq += (entry * entry);
+    }
+
+    double global_norm_sq;
+    MPI_Allreduce(&local_norm_sq, &global_norm_sq, 1, MPI_DOUBLE, MPI_SUM, comm);
+    return std::sqrt(global_norm_sq);
+}
+
+
 } // namespace smoothg

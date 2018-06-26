@@ -149,9 +149,9 @@ void FiniteVolumeMLMC::RescaleCoefficient(int level, const mfem::Vector& coeff)
 
 void FiniteVolumeMLMC::RescaleFineCoefficient(const mfem::Vector& coeff)
 {
+    GetFineMatrix().UpdateM(coeff);
     if (!hybridization_)
     {
-        GetFineMatrix().UpdateM(coeff);
         ForceMakeFineSolver();
     }
     else
@@ -164,9 +164,9 @@ void FiniteVolumeMLMC::RescaleFineCoefficient(const mfem::Vector& coeff)
 
 void FiniteVolumeMLMC::RescaleCoarseCoefficient(const mfem::Vector& coeff)
 {
+    GetCoarseMatrix().UpdateM(coeff);
     if (!hybridization_)
     {
-        GetCoarseMatrix().UpdateM(coeff);
         MakeCoarseSolver();
     }
     else
@@ -253,7 +253,6 @@ void FiniteVolumeMLMC::ForceMakeFineSolver()
         fine_solver_ = make_unique<MinresBlockSolverFalse>(
                     comm_, GetFineMatrix(), remove_one_dof_);
     }
-
 }
 
 void FiniteVolumeMLMC::MakeFineSolver()

@@ -596,8 +596,6 @@ void ExtendEdgeBoundaryattr2(const std::vector<Well>& well_list,
     const int old_nedges = edge_boundaryattr.Height();
     const int old_nnz = edge_boundaryattr.NumNonZeroElems();
 
-    std::vector<int> well_cells;
-    std::vector<WellType> well_type;
     int num_well_cells = 0;
     int new_nnz = old_nnz;
 
@@ -607,9 +605,6 @@ void ExtendEdgeBoundaryattr2(const std::vector<Well>& well_list,
         num_well_cells += num_wells_i;
         if (well.GetType() == WellType::Producer)
             new_nnz += num_wells_i;
-
-        well_cells.push_back(num_wells_i);
-        well_type.push_back(well.GetType());
     }
 
     int* new_i = new int[old_nedges + num_well_cells + 1];
@@ -627,18 +622,17 @@ void ExtendEdgeBoundaryattr2(const std::vector<Well>& well_list,
     int counter = 0;
     int new_attr = edge_boundaryattr.Width();
 
-    for (size_t i = 0; i < well_list.size(); ++i)
+    for (const Well& well : well_list)
     {
-        int num_cells = well_cells[i];
+        int num_cells = well.GetNumberOfCells();
 
-        if (well_type[i] == WellType::Producer)
+        if (well.GetType() == WellType::Producer)
         {
             for (int j = 0; j < num_cells; ++j)
             {
                 new_j[old_nnz + counter + j] = new_attr;
                 new_data[old_nnz + counter + j] = 1.0;
                 new_i[old_nedges + counter + j + 1] = new_i[old_nedges + counter] + j + 1;
-                //printf("Setting: %d, %d to %d %d\n", i, j, new_i[old_nedges + counter+ j + 1], new_i[old_nedges + counter]);
                 well_marker[old_nedges + counter + j] = 1;
             }
         }
@@ -647,21 +641,11 @@ void ExtendEdgeBoundaryattr2(const std::vector<Well>& well_list,
             for (int j = 0; j < num_cells; ++j)
             {
                 new_i[old_nedges + counter + j + 1] = new_i[old_nedges + counter];
-                //printf("Extending: %d, %d to %d %d\n", i, j, new_i[old_nedges + counter+ j + 1], new_i[old_nedges + counter]);
             }
         }
 
         counter += num_cells;
     }
-
-    //    for (int i = old_nnz; i < new_nnz; ++i)
-    //    {
-    //        printf("j %d: %d\n", i, new_j[i]);
-    //    }
-    //    for (int i = old_nedges; i < old_nedges + num_well_cells + 1; ++i)
-    //    {
-    //        printf("i %d: %d\n", i, new_i[i]);
-    //    }
 
     assert(new_i[old_nedges + num_well_cells] == new_nnz);
 
@@ -1429,11 +1413,11 @@ void SPE10Problem::VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const
     vis_v << "parallel " << pmesh_->GetNRanks() << " " << myid_ << "\n";
     vis_v << "solution\n" << *pmesh_ << ufespace_gf_;
 
-    MPI_Barrier(pmesh_->GetComm());
+//    MPI_Barrier(pmesh_->GetComm());
 
-    vis_v << "keys S\n";         //Screenshot
+//    vis_v << "keys S\n";         //Screenshot
 
-    MPI_Barrier(pmesh_->GetComm());
+//    MPI_Barrier(pmesh_->GetComm());
 }
 
 void SPE10Problem::CartPart(mfem::Array<int>& partitioning, int nz,
