@@ -630,7 +630,9 @@ void GraphCoarsen::BuildPEdges(std::vector<mfem::DenseMatrix>& edge_traces,
     auto QP = smoothg::Mult(*Qedges_, Pedges);
     auto Iden = SparseIdentity(QP.Height());
     QP.Add(-1.0, Iden);
-    assert(FrobeniusNorm(QP, MPI_COMM_WORLD) < 1e-8); // TODO: check this assert in parallel
+    if (FrobeniusNorm(QP, MPI_COMM_WORLD) > 1e-8)
+        std::cout << "FrobeniusNorm(QP - I) = " << FrobeniusNorm(QP, MPI_COMM_WORLD) << "\n";
+//    assert(FrobeniusNorm(QP, MPI_COMM_WORLD) < 1e-8);
 #endif // SMOOTHG_DEBUG
 }
 

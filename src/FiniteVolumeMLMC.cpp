@@ -164,7 +164,13 @@ void FiniteVolumeMLMC::RescaleFineCoefficient(const mfem::Vector& coeff)
 
 void FiniteVolumeMLMC::RescaleCoarseCoefficient(const mfem::Vector& coeff)
 {
-    GetCoarseMatrix().UpdateM(coeff);
+//    GetCoarseMatrix().UpdateM(coeff);
+
+    GetFineMatrix().UpdateM(coeff);
+    std::unique_ptr<mfem::SparseMatrix> M_c(
+        mfem::RAP(coarsener_->get_Psigma(), GetFineMatrix().GetM(), coarsener_->get_Psigma()));
+    GetCoarseMatrix().SetM(*M_c);
+
     if (!hybridization_)
     {
         MakeCoarseSolver();

@@ -247,12 +247,12 @@ int main(int argc, char* argv[])
     auto sol_upscaled = fvupscale.Interpolate(sol_coarse);
     fvupscale.ShowCoarseSolveInfo();
 
-    auto S_upscaled = Transport(spe10problem, fvupscale, sol_upscaled, delta_t, total_time, vis_step,
-                                Fine, "saturation based on coarse scale flux", CoarseAdv::Upwind);
+//    auto S_upscaled = Transport(spe10problem, fvupscale, sol_upscaled, delta_t, total_time, vis_step,
+//                                Fine, "saturation based on coarse scale flux", CoarseAdv::Upwind);
 
-    // Coarse scale transport based on upscaled flux
-    auto S_coarse = Transport(spe10problem, fvupscale, sol_coarse, delta_t, total_time, vis_step,
-                              Coarse, "saturation based on coarse scale flux", CoarseAdv::Upwind);
+//    // Coarse scale transport based on upscaled flux
+//    auto S_coarse = Transport(spe10problem, fvupscale, sol_coarse, delta_t, total_time, vis_step,
+//                              Coarse, "saturation based on coarse scale flux", CoarseAdv::Upwind);
 
     //    auto S_coarse2 = Transport2(spe10problem, fvupscale, sol_upscaled, delta_t, total_time,
     //                              vis_step, "saturation based on coarse scale flux", Coarse);
@@ -260,20 +260,20 @@ int main(int argc, char* argv[])
     auto S_coarse2 = Transport(spe10problem, fvupscale, sol_upscaled, delta_t, total_time, vis_step,
                                Coarse, "saturation based on coarse scale flux", CoarseAdv::RAP);
 
-    auto S_coarse3 = Transport(spe10problem, fvupscale, sol_coarse, delta_t, total_time, vis_step,
-                               Coarse, "saturation based on fine scale flux", CoarseAdv::FastRAP);
+//    auto S_coarse3 = Transport(spe10problem, fvupscale, sol_coarse, delta_t, total_time, vis_step,
+//                               Coarse, "saturation based on fine scale flux", CoarseAdv::FastRAP);
 
     auto error_info = fvupscale.ComputeErrors(sol_upscaled, sol_fine);
-    double sat_err = CompareError(comm, S_upscaled, S_fine);
-    double sat_err2 = CompareError(comm, S_coarse, S_fine);
+//    double sat_err = CompareError(comm, S_upscaled, S_fine);
+//    double sat_err2 = CompareError(comm, S_coarse, S_fine);
     double sat_err3 = CompareError(comm, S_coarse2, S_fine);
-    double sat_err4 = CompareError(comm, S_coarse3, S_fine);
+//    double sat_err4 = CompareError(comm, S_coarse3, S_fine);
     if (myid == 0)
     {
         std::cout << "Flow errors:\n";
         ShowErrors(error_info);
-        std::cout << "Saturation errors: " << sat_err << ", " << sat_err2 //<< "\n";
-                  << " " << sat_err3 << " " << sat_err4 << "\n";
+        std::cout << "Saturation errors: " << sat_err3 << ", " << sat_err3 //<< "\n";
+                  << " " << sat_err3 << " " << sat_err3 << "\n";
     }
 
     return EXIT_SUCCESS;
@@ -516,7 +516,9 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
     mfem::Vector S_vis;
     if (level == Fine)
     {
-        S_vis.SetDataAndSize(S.GetData(), S.Size());
+//        S_vis.SetDataAndSize(S.GetData(), S.Size());
+        S_vis.SetSize(S.Size());
+        S_vis = S;
     }
     else
     {
@@ -530,7 +532,7 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
             up.Interpolate(S, S_vis);
         }
         spe10problem.VisSetup(sout, S_vis, 0.0, 1.0, caption);
-        setup = false;
+//        setup = false;
     }
 
     double time = 0.0;
@@ -574,11 +576,15 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
         {
             if (myid == 0)
             {
-                std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
+//                std::cout << "time step: " << ti << ", time: " << time << "\r";//std::endl;
             }
             if (level == Coarse)
             {
                 up.Interpolate(S, S_vis);
+            }
+            else
+            {
+                S_vis = S;
             }
             spe10problem.VisUpdate(sout, S_vis);
         }
@@ -596,12 +602,12 @@ mfem::Vector Transport(const SPE10Problem& spe10problem, const Upscale& up,
         S = S_vis;
     }
 
-    for (unsigned int i = 0; i < sats.size(); i++)
-    {
-        std::ofstream ofs("sat_prod_" + std::to_string(i) + "_" + std::to_string(myid)
-                          + "_" + std::to_string(option) + ".txt");
-        sats[i].Print(ofs, 1);
-    }
+//    for (unsigned int i = 0; i < sats.size(); i++)
+//    {
+//        std::ofstream ofs("sat_prod_" + std::to_string(i) + "_" + std::to_string(myid)
+//                          + "_" + std::to_string(option) + ".txt");
+//        sats[i].Print(ofs, 1);
+//    }
 
     return S;
 }

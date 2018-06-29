@@ -769,9 +769,9 @@ public:
     void setup_ten_spot_pattern(const mfem::Array<int>& N, const int nDim,
                                 WellManager& well_manager, int well_height,
                                 double injection_rate, double bottom_hole_pressure = 0.0);
-    void VisSetup(mfem::socketstream& vis_v, mfem::Vector vec, double range_min,
+    void VisSetup(mfem::socketstream& vis_v, mfem::Vector& vec, double range_min,
                   double range_max, const std::string& caption = "") const;
-    void VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const;
+    void VisUpdate(mfem::socketstream& vis_v, mfem::Vector& vec) const;
     void CartPart(mfem::Array<int>& partitioning, int nz,
                   const mfem::Array<int>& coarsening_factor,
                   const mfem::Array<int>& isolated_vertices) const;
@@ -1367,7 +1367,7 @@ void SPE10Problem::PrintMeshWithPartitioning(mfem::Array<int>& partition)
     pmesh_->PrintWithPartitioning(partition.GetData(), ofid, 1);
 }
 
-void SPE10Problem::VisSetup(mfem::socketstream& vis_v, mfem::Vector vec, double range_min,
+void SPE10Problem::VisSetup(mfem::socketstream& vis_v, mfem::Vector& vec, double range_min,
                             double range_max, const std::string& caption) const
 {
     ufespace_gf_.MakeRef(ufespace_.get(), vec.GetData());
@@ -1406,18 +1406,18 @@ void SPE10Problem::VisSetup(mfem::socketstream& vis_v, mfem::Vector vec, double 
     //    MPI_Barrier(pmesh_->GetComm());
 }
 
-void SPE10Problem::VisUpdate(mfem::socketstream& vis_v, mfem::Vector vec) const
+void SPE10Problem::VisUpdate(mfem::socketstream& vis_v, mfem::Vector& vec) const
 {
     ufespace_gf_.MakeRef(ufespace_.get(), vec.GetData());
 
     vis_v << "parallel " << pmesh_->GetNRanks() << " " << myid_ << "\n";
     vis_v << "solution\n" << *pmesh_ << ufespace_gf_;
 
-//    MPI_Barrier(pmesh_->GetComm());
+    MPI_Barrier(pmesh_->GetComm());
 
-//    vis_v << "keys S\n";         //Screenshot
+    vis_v << "keys S\n";         //Screenshot
 
-//    MPI_Barrier(pmesh_->GetComm());
+    MPI_Barrier(pmesh_->GetComm());
 }
 
 void SPE10Problem::CartPart(mfem::Array<int>& partitioning, int nz,

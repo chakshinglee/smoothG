@@ -602,7 +602,8 @@ TwoPhaseOp::TwoPhaseOp(const SPE10Problem &spe10problem, FiniteVolumeMLMC &up,
     }
     else
     {
-        SetupTransportOp(up_.GetAggFace(), up_.GetFaceTrueFace());
+//        SetupTransportOp(up_.GetAggFace(), up_.GetFaceTrueFace());
+        SetupTransportOp(spe10problem.GetVertexEdge(), spe10problem.GetEdgeToTrueEdge());
 
         mfem::BlockVector tmp(up_.GetFineBlockVector());
         tmp.GetBlock(0) = spe10problem.GetEdgeRHS();
@@ -733,7 +734,16 @@ void TwoPhaseOp::PicardSolve(const mfem::BlockVector& rhs, mfem::BlockVector& x)
 void TwoPhaseOp::PicardStep(const mfem::BlockVector& rhs, mfem::BlockVector& x)
 {
     // solve pressure equation
-    TotalMobility(x.GetBlock(1), tot_mob_);
+    if (level_ == Coarse)
+    {
+        auto S_fine = up_.Interpolate(x.GetBlock(1));
+        tot_mob_.SetSize(S_fine.Size());
+        TotalMobility(S_fine, tot_mob_);
+    }
+    else
+    {
+        TotalMobility(x.GetBlock(1), tot_mob_);
+    }
     up_.RescaleCoefficient(level_, tot_mob_);
     flow_solver_->Mult(rhs.GetBlock(0), x.GetBlock(0));
 
@@ -767,6 +777,11 @@ void TwoPhaseOp::SetupTransportOp(const mfem::SparseMatrix& elem_facet,
 
     num_tf_ = facet_truefacet.N();
     tf_starts_ = facet_truefacet.GetColStarts();
+
+    if (level_ == Coarse)
+    {
+        GenerateOffsets(comm_, up_.GetPu().Width(), tran_op_starts_);
+    }
 }
 
 void TwoPhaseOp::MakeTransportOp(const mfem::Vector& normal_flux)
@@ -774,6 +789,13 @@ void TwoPhaseOp::MakeTransportOp(const mfem::Vector& normal_flux)
     mfem::Array<int> facedofs;
     mfem::Vector normal_flux_loc;
     mfem::Vector normal_flux_fine;
+
+    if (level_ == Coarse)
+    {
+        mfem::Vector normal_flux_ref(normal_flux.GetData(), up_.GetPsigma().Width());
+        normal_flux_fine.SetSize(up_.GetPsigma().Height());
+        up_.GetPsigma().Mult(normal_flux_ref, normal_flux_fine);
+    }
 
     mfem::SparseMatrix diag(f_tf_e_diag_.Width(), f_tf_e_diag_.Width());
     mfem::SparseMatrix offd(f_tf_e_diag_.Width(), f_tf_e_offd_.Width());
@@ -789,18 +811,21 @@ void TwoPhaseOp::MakeTransportOp(const mfem::Vector& normal_flux)
         }
         else
         {
-            const auto& normal_flip = up_.GetCoarseToFineNormalFlip()[face];
-            GetTableRow(up_.GetFaceToFaceDof(), face, facedofs);
-            normal_flux.GetSubVector(facedofs, normal_flux_loc);
-            normal_flux_loc *= -1.0; // P matrix stores negative traces
-            normal_flux_fine.SetSize(normal_flip.size());
-            up_.GetTraces()[face].Mult(normal_flux_loc, normal_flux_fine);
-            for (int i = 0; i < normal_flux_fine.Size(); i++)
-            {
-                double fine_flux_i = normal_flux_fine(i) * normal_flip[i];
-                normal_flux_i_0 += (fabs(fine_flux_i) - fine_flux_i) / 2;
-                normal_flux_i_1 += (fabs(fine_flux_i) + fine_flux_i) / 2;
-            }
+            normal_flux_i_0 = (fabs(normal_flux_fine(face)) - normal_flux_fine(face)) / 2;
+            normal_flux_i_1 = (fabs(normal_flux_fine(face)) + normal_flux_fine(face)) / 2;
+
+//            const auto& normal_flip = up_.GetCoarseToFineNormalFlip()[face];
+//            GetTableRow(up_.GetFaceToFaceDof(), face, facedofs);
+//            normal_flux.GetSubVector(facedofs, normal_flux_loc);
+//            normal_flux_loc *= -1.0; // P matrix stores negative traces
+//            normal_flux_fine.SetSize(normal_flip.size());
+//            up_.GetTraces()[face].Mult(normal_flux_loc, normal_flux_fine);
+//            for (int i = 0; i < normal_flux_fine.Size(); i++)
+//            {
+//                double fine_flux_i = normal_flux_fine(i) * normal_flip[i];
+//                normal_flux_i_0 += (fabs(fine_flux_i) - fine_flux_i) / 2;
+//                normal_flux_i_1 += (fabs(fine_flux_i) + fine_flux_i) / 2;
+//            }
         }
 
         if (f_tf_e_diag_.RowSize(face) == 2) // facet is interior
@@ -840,14 +865,31 @@ void TwoPhaseOp::MakeTransportOp(const mfem::Vector& normal_flux)
     diag.Finalize();
     offd.Finalize();
 
-    transport_op_ = make_unique<mfem::HypreParMatrix>(
-                comm_, tran_op_starts_.Last(), tran_op_starts_.Last(),
-                tran_op_starts_, tran_op_starts_, &diag, &offd, tran_op_colmap_);
+    if (level_ == Fine)
+    {
+        transport_op_ = make_unique<mfem::HypreParMatrix>(
+                    comm_, tran_op_starts_.Last(), tran_op_starts_.Last(),
+                    tran_op_starts_, tran_op_starts_, &diag, &offd, tran_op_colmap_);
 
-    // Adjust ownership
-    transport_op_->SetOwnerFlags(3, 3, 0);
-    diag.LoseData();
-    offd.LoseData();
+        // Adjust ownership
+        transport_op_->SetOwnerFlags(3, 3, 0);
+        diag.LoseData();
+        offd.LoseData();
+    }
+    else
+    {
+        mfem::Array<int> tmp_starts;
+        GenerateOffsets(comm_, up_.GetPu().Height(), tmp_starts);
+        mfem::HypreParMatrix transport_op_fine(comm_, tmp_starts.Last(), tmp_starts.Last(),
+                                               tmp_starts, tmp_starts, &diag, &offd, tran_op_colmap_);
+
+        auto PuT = smoothg::Transpose(up_.GetPu());
+        unique_ptr<mfem::HypreParMatrix> tmp(transport_op_fine.LeftDiagMult(PuT, tran_op_starts_));
+        unique_ptr<mfem::HypreParMatrix> tmpT(tmp->Transpose());
+        unique_ptr<mfem::HypreParMatrix> tmpcT(tmpT->LeftDiagMult(PuT, tran_op_starts_));
+
+        transport_op_.reset(tmpcT->Transpose());
+    }
 }
 
 void TwoPhaseOp::dRvdv(const mfem::Vector& normal_flux, const mfem::Vector& FS)
@@ -936,7 +978,7 @@ TPH::TPH(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up, SolveType solve
     ops_[0]->SetPrintLevel(-1);
     ops_[1]->SetPrintLevel(-1);
     ops_[0]->SetMaxIter(1);
-    ops_[1]->SetMaxIter(10);
+    ops_[1]->SetMaxIter(1);
 //    ops_[1]->SetRelTol(1e-7);
 //    ops_[1]->SetRelTol(1e-9);
 

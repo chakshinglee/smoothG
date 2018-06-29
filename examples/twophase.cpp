@@ -256,18 +256,18 @@ int main(int argc, char* argv[])
 //                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
 //                Coarse, Coarse, "saturation based on coarse scale upwind", CoarseAdv::Upwind);
 
-//    auto S_coarse2 = TwoPhaseFlow(
-//                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
-//                Coarse, Coarse, "saturation based on RAP", CoarseAdv::RAP);
-
-    auto S_coarse3 = TwoPhaseFlow(
+    auto S_coarse2 = TwoPhaseFlow(
                 spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
-                Coarse, Coarse, "saturation based on fastRAP", CoarseAdv::FastRAP);
+                Coarse, Coarse, "saturation based on RAP", CoarseAdv::RAP);
+
+//    auto S_coarse3 = TwoPhaseFlow(
+//                spe10problem, fvupscale, rhs_coarse, delta_t, total_time, vis_step,
+//                Coarse, Coarse, "saturation based on fastRAP", CoarseAdv::FastRAP);
 
 //    double sat_err = CompareError(comm, S_upscaled, S_fine);
 //    double sat_err2 = CompareError(comm, S_coarse, S_fine);
 //    double sat_err3 = CompareError(comm, S_coarse2, S_fine);
-    double sat_err4 = CompareError(comm, S_coarse3, S_fine);
+    double sat_err4 = CompareError(comm, S_coarse2, S_fine);
     if (myid == 0)
     {
 //        std::cout << "Flow errors:\n";
@@ -425,7 +425,6 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
     return out;
 }
 
-mfem::socketstream sout;
 int option = 0;
 bool setup = true;
 mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up,
@@ -433,6 +432,8 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
                           double total_time, int vis_step, Level p_level, Level S_level,
                           const std::string& caption, CoarseAdv coarse_Adv)
 {
+
+    mfem::socketstream sout;
     option++;
     mfem::SparseMatrix vertex_edge;
     mfem::HypreParMatrix edge_d_td;
@@ -527,7 +528,15 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
 
     unique_ptr<mfem::HypreParMatrix> Adv;
     mfem::BlockVector upscaled_flow_sol(up.GetFineBlockVector());
-    mfem::Vector upscaled_total_mobility(up.GetCoarseBlockVector().BlockSize(1));
+    mfem::Vector upscaled_total_mobility;
+    if (S_level == Coarse)
+    {
+        upscaled_total_mobility.SetSize(up.GetFineBlockVector().BlockSize(1));
+    }
+    else
+    {
+        upscaled_total_mobility.SetSize(up.GetCoarseBlockVector().BlockSize(1));
+    }
     mfem::Vector normal_flux;
 
     bool done = false;
@@ -544,7 +553,8 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
         {
             if (S_level == Coarse)
             {
-                up.RescaleCoarseCoefficient(total_mobility);
+                up.Interpolate(total_mobility, upscaled_total_mobility);
+                up.RescaleCoarseCoefficient(upscaled_total_mobility);
             }
             else
             {
@@ -592,7 +602,7 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
         double dt_real = std::min(delta_t, total_time - time);
         ode_solver.Step(S, time, dt_real);
         ti++;
-
+//std::cout<<"S norm = "<<S.Norml2()<<"\n";
         //        for (unsigned int i = 0; i < sats.size(); i++)
         //        {
         //            if (level == Coarse)
