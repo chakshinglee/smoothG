@@ -69,7 +69,7 @@ protected:
     std::unique_ptr<mfem::BlockVector> sol_;
 
     // default linear solver options
-    int print_level_ = 0;
+    int print_level_ = -1;
     int max_num_iter_ = 5000;
     double rtol_ = 1e-9;
     double atol_ = 1e-12;

@@ -269,58 +269,6 @@ std::unique_ptr<mfem::SparseMatrix> MixedMatrix::ConstructD(
     return unique_ptr<mfem::SparseMatrix>(mfem::Transpose(graphDT));
 }
 
-void BuildCoarseLevelLocalMassMatrix(
-        const mfem::SparseMatrix& Agg_edge_fdof,
-        const mfem::SparseMatrix& Agg_edge_cdof,
-        const mfem::SparseMatrix& Pedges,
-        const mfem::SparseMatrix& M,
-        std::vector<unique_ptr<mfem::SparseMatrix>>& CM_el)
-{
-    assert(Agg_edge_fdof.Height() == Agg_edge_cdof.Height());
-    assert(Agg_edge_fdof.Width() == Pedges.Height());
-    assert(Agg_edge_cdof.Width() == Pedges.Width());
-
-    int nAgg = Agg_edge_fdof.Height();
-    CM_el.resize(nAgg);
-
-    unique_ptr<mfem::SparseMatrix> edge_fdof_Agg( mfem::Transpose(Agg_edge_fdof) );
-    mfem::Array<int> local_edge_fdof, local_edge_cdof;
-    int * i_Agg_edge_fdof = Agg_edge_fdof.GetI();
-    int * j_Agg_edge_fdof = Agg_edge_fdof.GetJ();
-    int * i_Agg_edge_cdof = Agg_edge_cdof.GetI();
-    int * j_Agg_edge_cdof = Agg_edge_cdof.GetJ();
-
-    mfem::Array<int> colMapper(Pedges.Width());
-    colMapper = -1;
-
-    double * M_data = M.GetData();
-    mfem::Vector Mloc_v;
-    int edge_fdof;
-    for (int i = 0; i < nAgg; i++)
-    {
-        int nlocal_edge_fdof = Agg_edge_fdof.RowSize(i);
-        int nlocal_edge_cdof = Agg_edge_cdof.RowSize(i);
-        local_edge_fdof.MakeRef(j_Agg_edge_fdof+i_Agg_edge_fdof[i],
-                nlocal_edge_fdof);
-        local_edge_cdof.MakeRef(j_Agg_edge_cdof+i_Agg_edge_cdof[i],
-                nlocal_edge_cdof);
-        auto Ploc = ExtractRowAndColumns(Pedges, local_edge_fdof,
-                                         local_edge_cdof, colMapper);
-        Mloc_v.SetSize(nlocal_edge_fdof);
-        for (int j = 0; j < nlocal_edge_fdof; j++)
-        {
-            edge_fdof = local_edge_fdof[j];
-            if (edge_fdof_Agg->RowSize(edge_fdof) == 2)
-                Mloc_v(j) = M_data[edge_fdof]/2;
-            else
-                Mloc_v(j) = M_data[edge_fdof];
-        }
-
-        unique_ptr<mfem::SparseMatrix> CMloc( mfem::Mult_AtDA(Ploc, Mloc_v) );
-        CM_el[i] = std::move(CMloc);
-    }
-}
-
 } // namespace smoothg
 
 #endif /* __MIXEDMATRIX_IMPL_HPP__ */

@@ -130,6 +130,7 @@ public:
     mfem::SparseMatrix face_Agg_;
     mfem::SparseMatrix Agg_face_;
     mfem::SparseMatrix face_edge_;
+    mfem::SparseMatrix Agg_alledge_;
     ///@}
 
     ///@name extended aggregate relation tables, using "true dofs"

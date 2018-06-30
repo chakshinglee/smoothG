@@ -179,6 +179,8 @@ public:
 
     const std::vector<mfem::DenseMatrix>& GetElementMatrices() const { return CM_el_; }
 
+    void SetElementM(std::vector<mfem::DenseMatrix>& CM_el_in);
+
     const mfem::SparseMatrix& GetAggEdgeDofTable() const { return Agg_cdof_edge_ref_; }
 
 private:

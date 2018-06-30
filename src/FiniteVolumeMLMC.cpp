@@ -162,25 +162,92 @@ void FiniteVolumeMLMC::RescaleFineCoefficient(const mfem::Vector& coeff)
     }
 }
 
+void BuildCoarseLevelLocalMassMatrix(
+        const mfem::SparseMatrix& Agg_fdof,
+        const mfem::SparseMatrix& Agg_cdof,
+        const mfem::SparseMatrix& Pedges,
+        const mfem::SparseMatrix& M,
+        std::vector<mfem::DenseMatrix>& CM_el)
+{
+    assert(Agg_fdof.Height() == Agg_cdof.Height());
+    assert(Agg_fdof.Width() == Pedges.Height());
+    assert(Agg_cdof.Width() == Pedges.Width());
+
+    int nAgg = Agg_fdof.Height();
+    CM_el.resize(nAgg);
+
+    mfem::Array<int> colMapper(Pedges.Width());
+    colMapper = -1;
+
+    auto edge_fdof_Agg = smoothg::Transpose(Agg_fdof);
+    mfem::Array<int> local_edge_fdof, local_edge_cdof;
+    int * i_Agg_fdof = Agg_fdof.GetI();
+    int * j_Agg_fdof = Agg_fdof.GetJ();
+    int * i_Agg_cdof = Agg_cdof.GetI();
+    int * j_Agg_cdof = Agg_cdof.GetJ();
+
+    double * M_data = M.GetData();
+    mfem::Vector Mloc_v;
+    int edge_fdof;
+    for (int i = 0; i < nAgg; i++)
+    {
+        int nlocal_edge_fdof = Agg_fdof.RowSize(i);
+        int nlocal_edge_cdof = Agg_cdof.RowSize(i);
+        local_edge_fdof.MakeRef(j_Agg_fdof+i_Agg_fdof[i],
+                nlocal_edge_fdof);
+        local_edge_cdof.MakeRef(j_Agg_cdof+i_Agg_cdof[i],
+                nlocal_edge_cdof);
+        auto Ploc = ExtractRowAndColumns(Pedges, local_edge_fdof,
+                                         local_edge_cdof, colMapper);
+        Mloc_v.SetSize(nlocal_edge_fdof);
+        for (int j = 0; j < nlocal_edge_fdof; j++)
+        {
+            edge_fdof = local_edge_fdof[j];
+            if (edge_fdof_Agg.RowSize(edge_fdof) == 2)
+                Mloc_v(j) = M_data[edge_fdof]/2;
+            else
+                Mloc_v(j) = M_data[edge_fdof];
+        }
+
+        std::unique_ptr<mfem::SparseMatrix> CMloc(mfem::Mult_AtDA(Ploc, Mloc_v));
+        CM_el[i].SetSize(CMloc->Width());
+        Full(*CMloc, CM_el[i]);
+    }
+}
+
 void FiniteVolumeMLMC::RescaleCoarseCoefficient(const mfem::Vector& coeff)
 {
 //    GetCoarseMatrix().UpdateM(coeff);
+//    if (!hybridization_)
+//    {
+//        MakeCoarseSolver();
+//    }
+//    else
+//    {
+//        auto hybrid_solver = dynamic_cast<HybridSolver*>(coarse_solver_.get());
+//        assert(hybrid_solver);
+//        hybrid_solver->UpdateAggScaling(coeff);
+//    }
 
     GetFineMatrix().UpdateM(coeff);
-    std::unique_ptr<mfem::SparseMatrix> M_c(
-        mfem::RAP(coarsener_->get_Psigma(), GetFineMatrix().GetM(), coarsener_->get_Psigma()));
-    GetCoarseMatrix().SetM(*M_c);
-
     if (!hybridization_)
     {
-        MakeCoarseSolver();
+        std::unique_ptr<mfem::SparseMatrix> M_c(
+                    mfem::RAP(coarsener_->get_Psigma(), GetFineMatrix().GetM(), coarsener_->get_Psigma()));
+        GetCoarseMatrix().SetM(*M_c);
     }
     else
     {
-        auto hybrid_solver = dynamic_cast<HybridSolver*>(coarse_solver_.get());
-        assert(hybrid_solver);
-        hybrid_solver->UpdateAggScaling(coeff);
+        std::vector<mfem::DenseMatrix> CM_el;
+        BuildCoarseLevelLocalMassMatrix(
+                    coarsener_->get_GraphTopology_ref().Agg_alledge_,
+                    coarsener_->construct_Agg_cedgedof_table(),
+                    coarsener_->get_Psigma(),
+                    GetFineMatrix().GetM(),
+                    CM_el);
+        dynamic_cast<ElementMBuilder&>(GetCoarseMatrix().GetMBuilder()).SetElementM(CM_el);
     }
+    MakeCoarseSolver();
 }
 
 void FiniteVolumeMLMC::MakeCoarseSolver()

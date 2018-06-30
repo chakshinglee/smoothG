@@ -431,6 +431,8 @@ void GraphTopology::Init(mfem::SparseMatrix& vertex_edge,
         // set diag not to own i, j, data arrays (pAggExt_edge owns them)
         diag.LoseData();
     }
+
+    Agg_alledge_.Swap(aggregate_edge);
 }
 
 GraphTopology::GraphTopology(const mfem::SparseMatrix& face_edge,

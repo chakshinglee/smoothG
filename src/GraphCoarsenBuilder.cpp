@@ -149,6 +149,12 @@ std::unique_ptr<mfem::SparseMatrix> ElementMBuilder::BuildAssembledM(
     return CoarseM;
 }
 
+void ElementMBuilder::SetElementM(std::vector<mfem::DenseMatrix>& CM_el_in)
+{
+    CM_el_ = std::move(CM_el_in);
+}
+
+
 std::unique_ptr<mfem::SparseMatrix> ElementMBuilder::ComputedMdw(
         const mfem::Vector& sigma) const
 {

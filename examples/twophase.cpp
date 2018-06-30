@@ -425,6 +425,8 @@ std::unique_ptr<mfem::HypreParMatrix> DiscreteAdvection(
     return out;
 }
 
+
+mfem::socketstream sout;
 int option = 0;
 bool setup = true;
 mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up,
@@ -432,8 +434,6 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
                           double total_time, int vis_step, Level p_level, Level S_level,
                           const std::string& caption, CoarseAdv coarse_Adv)
 {
-
-    mfem::socketstream sout;
     option++;
     mfem::SparseMatrix vertex_edge;
     mfem::HypreParMatrix edge_d_td;
@@ -542,9 +542,9 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
     bool done = false;
     for (int ti = 0; !done; )
     {
-        TotalMobility(S, total_mobility);
         if (p_level == Fine)
         {
+            TotalMobility(S, total_mobility);
             up.RescaleFineCoefficient(total_mobility);
             up.SolveFine(p_rhs, flow_sol);
 //            up.ShowFineSolveInfo();
@@ -553,11 +553,13 @@ mfem::Vector TwoPhaseFlow(const SPE10Problem& spe10problem, FiniteVolumeMLMC& up
         {
             if (S_level == Coarse)
             {
-                up.Interpolate(total_mobility, upscaled_total_mobility);
+                up.Interpolate(S, S_vis);
+                TotalMobility(S_vis, upscaled_total_mobility);
                 up.RescaleCoarseCoefficient(upscaled_total_mobility);
             }
             else
             {
+                TotalMobility(S, total_mobility);
                 up.ComputeAggAverages(total_mobility, upscaled_total_mobility);
                 /// @todo fix local coarse M matrix
                 up.RescaleCoarseCoefficient(upscaled_total_mobility);

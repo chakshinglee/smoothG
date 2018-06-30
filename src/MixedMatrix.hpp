@@ -110,6 +110,15 @@ public:
     }
 
     /**
+       @brief Get a reference to the mass matrix M builder.
+    */
+    MBuilder& GetMBuilder()
+    {
+        assert(mbuilder_);
+        return *mbuilder_;
+    }
+
+    /**
        @brief Assemble the mass matrix M.
     */
     void BuildM()
