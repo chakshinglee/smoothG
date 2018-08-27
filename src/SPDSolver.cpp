@@ -29,30 +29,24 @@ SPDSolver::SPDSolver(const MixedMatrix& mgl)
 {
 }
 
-SPDSolver::SPDSolver(const MixedMatrix& mgl, const std::vector<int>& elim_dofs)
-    : MGLSolver(mgl)
+SPDSolver::SPDSolver(const MixedMatrix& mgl, const std::vector<int>& ess_vdofs)
+    : MGLSolver(mgl, ess_vdofs)
 {
     std::vector<double> M_diag(mgl.GlobalM().GetDiag().GetDiag());
+
     std::vector<double> diag(mgl.LocalD().Rows(), 0.0);
 
     SparseMatrix D_elim = mgl.LocalD();
 
-    if (myid_ == 0 && !use_w_)
+    // TODO: revisit this function once ParMatrix::EliminateRowCol is available
+    if (ess_vdofs_.size() == 0 && myid_ == 0 && !use_w_)
     {
-        diag[0] = 1.0;
-        D_elim.EliminateRow(0);
+        ess_vdofs_.push_back(0);
     }
-
-    if (elim_dofs.size() > 0)
+    for (auto&& dof : ess_vdofs_)
     {
-        std::vector<int> marker(D_elim.Cols(), 0);
-
-        for (auto&& dof : elim_dofs)
-        {
-            marker[dof] = 1;
-        }
-
-        D_elim.EliminateCol(marker);
+        diag[dof] = 1.0;
+        D_elim.EliminateRow(dof);
     }
 
     ParMatrix D_elim_global(comm_, mgl.GlobalD().GetRowStarts(),
@@ -60,11 +54,14 @@ SPDSolver::SPDSolver(const MixedMatrix& mgl, const std::vector<int>& elim_dofs)
 
     ParMatrix D = D_elim_global.Mult(mgl.EdgeTrueEdge());
     ParMatrix MinvDT = D.Transpose();
+//    Print(M_diag);
+//    std::cout<<" size = "<< M_diag.size()<<"\n";
     MinvDT.InverseScaleRows(M_diag);
 
     if (use_w_)
     {
         A_ = parlinalgcpp::ParSub(D.Mult(MinvDT), mgl.GlobalW());
+        // need elimination in general. Now only works for diagonal W and 0 essential condition
     }
     else
     {
@@ -124,16 +121,17 @@ void SPDSolver::Solve(const BlockVector& rhs, BlockVector& sol) const
     Timer timer(Timer::Start::True);
 
     rhs_.GetBlock(1) = rhs.GetBlock(1);
+    rhs_.GetBlock(1) *= -1.0;
 
-    if (!use_w_ && myid_ == 0)
+    for (auto&& dof : ess_vdofs_)
     {
-        rhs_.GetBlock(1)[0] = 0.0;
+        rhs_.GetBlock(1)[dof] = sol.GetBlock(1)[dof]; // only correct when sol[dof] == 0
     }
 
     pcg_.Mult(rhs_.GetBlock(1), sol.GetBlock(1));
 
     MinvDT_.Mult(sol.GetBlock(1), sol.GetBlock(0)); // should this be negative too?
-    sol.GetBlock(1) *= -1.0;
+    sol.GetBlock(0) *= -1.0;
 
     timer.Click();
     timing_ = timer.TotalTime();

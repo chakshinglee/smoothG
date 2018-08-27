@@ -31,30 +31,34 @@ GraphUpscale::GraphUpscale(const Graph& graph, const UpscaleParams& params)
       rhs_(params.max_levels),
       sol_(params.max_levels),
       constant_rep_(params.max_levels),
-      elim_dofs_(params.max_levels),
+      ess_vdofs_(params.max_levels),
       comm_(graph.edge_true_edge_.GetComm()),
       myid_(graph.edge_true_edge_.GetMyId()),
       setup_time_(0),
-      hybridization_(params.hybridization)
+      hybridization_(params.hybridization),
+      proj_pw1_(params.max_levels)
 {
     Timer timer(Timer::Start::True);
 
     // Compute Topology
     std::vector<GraphTopology> gts;
     gts.emplace_back(graph);
+    ess_vdofs_[0] = params.ess_vdofs;
 
     for (int level = 1; level < params.max_levels - 1; ++level)
     {
-        gts.emplace_back(gts.back(), params.coarsen_factor);
+        CoarsenEssVdofs(level, gts.back().NumAggs());
+        gts.emplace_back(gts.back(), params.coarsen_factor, ess_vdofs_[level]);
     }
 
     // Fine Level
     int level = 0;
     {
-        mgl_[level] = MixedMatrix(graph);
+        mgl_[level] = MixedMatrix(graph, ess_vdofs_[level].size());
         mgl_[level].AssembleM();
 
-        elim_dofs_[level] = params.elim_edge_dofs;
+        proj_pw1_[level] = SparseIdentity(gts[level].NumVertices());
+
         MakeSolver(level);
         MakeVectors(level);
     }
@@ -66,7 +70,7 @@ GraphUpscale::GraphUpscale(const Graph& graph, const UpscaleParams& params)
         auto& spect_pair_i = params.spectral_pair[level - 1];
 
         double spect_tol_i = spect_pair_i.first;
-        int num_evects_i = spect_pair_i.second;
+        int num_evects_i = level == 1 ? spect_pair_i.second : spect_pair_i.second;
 
         int num_vert = gt_i.GlobalNumVertices();
         int num_agg = gt_i.GlobalNumAggs();
@@ -74,16 +78,25 @@ GraphUpscale::GraphUpscale(const Graph& graph, const UpscaleParams& params)
         ParPrint(myid_, printf("Coarsening: %d / %d = %.2f, evects: %d\n",
                  num_vert, num_agg, num_vert / (double) num_agg, num_evects_i));
 
+        SparseMatrix Q_pw1 = gt_i.agg_vertex_local_;
+        SparseMatrix scale = Q_pw1.Mult(Q_pw1.Transpose());
+        assert(IsDiag(scale));
+        Q_pw1.InverseScaleRows(scale.GetDiag());
+
         coarsener_[level - 1] = GraphCoarsen(std::move(gt_i), mgl_[level - 1],
                                              num_evects_i, spect_tol_i);
         mgl_[level] = MixedMatrix(coarsener_[level - 1].Coarsen(mgl_[level - 1]));
         mgl_[level].AssembleM();
 
+        CoarsenEssVdofs(level, mgl_[level].LocalD().Rows());
+        auto tmp = proj_pw1_[level - 1].Mult(coarsener_[level - 1].Pvertex());
+        proj_pw1_[level] = Q_pw1.Mult(tmp);
+
         MakeSolver(level);
         MakeVectors(level);
     }
 
-    do_ortho_ = !GetMatrix(0).CheckW();
+    do_ortho_ = !GetMatrix(0).CheckW() && params.ess_vdofs.size() == 0;
 
     timer.Click();
     setup_time_ += timer.TotalTime();
@@ -95,7 +108,7 @@ void GraphUpscale::MakeSolver(int level)
 
     if (level == 0)
     {
-        solver_[level] = make_unique<SPDSolver>(mm, elim_dofs_[level]);
+        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
     }
     else if (hybridization_)
     {
@@ -103,7 +116,7 @@ void GraphUpscale::MakeSolver(int level)
     }
     else
     {
-        solver_[level] = make_unique<MinresBlockSolver>(mm);
+        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
     }
 }
 
@@ -114,7 +127,7 @@ void GraphUpscale::MakeSolver(int level, const std::vector<double>& agg_weights)
     if (level == 0)
     {
         mm.AssembleM(agg_weights);
-        solver_[level] = make_unique<SPDSolver>(mm, elim_dofs_[level]);
+        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
     }
     else if (hybridization_)
     {
@@ -129,7 +142,7 @@ void GraphUpscale::MakeSolver(int level, const std::vector<double>& agg_weights)
     else
     {
         mm.AssembleM(agg_weights);
-        solver_[level] = make_unique<MinresBlockSolver>(mm);
+        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
     }
 }
 
@@ -210,6 +223,17 @@ void GraphUpscale::Mult(const VectorView& x, VectorView y) const
     Solve(1, x, y);
 }
 
+void GraphUpscale::Mult(int level, const VectorView& x, VectorView y) const
+{
+    mgl_[level].Mult(x, y);
+}
+
+void GraphUpscale::Mult(int level, const std::vector<double>& scale,
+                        const VectorView& x, VectorView y) const
+{
+    mgl_[level].Mult(scale, x, y);
+}
+
 void GraphUpscale::Solve(const VectorView& x, VectorView y) const
 {
     Solve(1, x, y);
@@ -276,7 +300,7 @@ void GraphUpscale::Solve(int level, const BlockVector& x, BlockVector& y) const
         coarsener_[i].Restrict(rhs_[i], rhs_[i + 1]);
     }
 
-    rhs_[level].GetBlock(1) *= -1.0;
+//    rhs_[level].GetBlock(1) *= -1.0;
     sol_[level] = 0.0;
 
     solver_[level]->Solve(rhs_[level], sol_[level]);
@@ -325,7 +349,7 @@ Vector GraphUpscale::SolveLevel(int level, const VectorView& x) const
 void GraphUpscale::SolveLevel(int level, const BlockVector& x, BlockVector& y) const
 {
     solver_.at(level)->Solve(x, y);
-    y.GetBlock(1) *= -1.0;
+//    y.GetBlock(1) *= -1.0;
 
     if (do_ortho_)
     {
@@ -605,6 +629,13 @@ void GraphUpscale::PrintInfo(std::ostream& out) const
             }
         }
 
+        double total_oc = 1.0;
+        for (size_t i = 1; i < mgl_.size(); ++i)
+        {
+            total_oc += (solver_[i]->GetNNZ() / (double) solver_[0]->GetNNZ());
+        }
+        out << "Overall OC: " << total_oc << "\n";
+
         out.precision(old_precision);
     }
 }
@@ -765,11 +796,11 @@ ParMatrix GraphUpscale::ToPrimal() const
 
     bool use_w = mgl.CheckW();
 
-    if (elim_dofs_[0].size() > 0)
+    if (ess_vdofs_[0].size() > 0)
     {
         std::vector<int> marker(D_elim.Cols(), 0);
 
-        for (auto&& dof : elim_dofs_[0])
+        for (auto&& dof : ess_vdofs_[0])
         {
             marker[dof] = 1;
         }
@@ -813,6 +844,19 @@ void GraphUpscale::MakeVectors(int level)
     sol_[level] = BlockVector(mgl_[level].Offsets());
 
     size_to_level_[rhs_[level].GetBlock(1).size()] = level;
+}
+
+void GraphUpscale::CoarsenEssVdofs(int level, int num_dofs)
+{
+    assert(level > 0);
+    ess_vdofs_[level].resize(ess_vdofs_[level - 1].size());
+    std::iota(ess_vdofs_[level].begin(), ess_vdofs_[level].end(),
+              num_dofs - ess_vdofs_[level - 1].size());
+}
+
+void GraphUpscale::Project_PW_One(int level, const VectorView& x, VectorView& y) const
+{
+    proj_pw1_[level].Mult(x, y);
 }
 
 } // namespace smoothg

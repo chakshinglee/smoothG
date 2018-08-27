@@ -40,6 +40,9 @@ target_link_libraries(mlmc smoothG)
 add_executable(sampler sampler.cpp)
 target_link_libraries(sampler smoothG)
 
+add_executable(nldarcy nldarcy.cpp)
+target_link_libraries(nldarcy smoothG)
+
 if (NOT DEFINED SMOOTHG_TEST_TOL)
     set(SMOOTHG_TEST_TOL 1e-4)
 endif()

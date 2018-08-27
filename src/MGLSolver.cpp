@@ -23,12 +23,13 @@
 namespace smoothg
 {
 
-MGLSolver::MGLSolver(const MixedMatrix& mgl)
+MGLSolver::MGLSolver(const MixedMatrix& mgl, const std::vector<int>& ess_vdofs)
     : comm_(mgl.GlobalD().GetComm()),
       myid_(mgl.GlobalD().GetMyId()),
       use_w_(mgl.CheckW()),
       rhs_(mgl.Offsets()), sol_(mgl.Offsets()),
-      nnz_(0), num_iterations_(0), timing_(0)
+      nnz_(0), num_iterations_(0), timing_(0),
+      ess_vdofs_(ess_vdofs)
 {
 
 }
@@ -41,7 +42,7 @@ MGLSolver::MGLSolver(const MGLSolver& other) noexcept
       max_num_iter_(other.max_num_iter_),
       rtol_(other.rtol_), atol_(other.atol_),
       nnz_(other.nnz_), num_iterations_(other.num_iterations_),
-      timing_(other.timing_)
+      timing_(other.timing_), ess_vdofs_(other.ess_vdofs_)
 {
 }
 
@@ -63,6 +64,7 @@ void swap(MGLSolver& lhs, MGLSolver& rhs) noexcept
     std::swap(lhs.nnz_, rhs.nnz_);
     std::swap(lhs.num_iterations_, rhs.num_iterations_);
     std::swap(lhs.timing_, rhs.timing_);
+    std::swap(lhs.ess_vdofs_, rhs.ess_vdofs_);
 }
 
 void MGLSolver::Mult(const BlockVector& rhs, BlockVector& sol) const
@@ -82,6 +84,7 @@ void MGLSolver::Solve(const VectorView& rhs, VectorView sol) const
 {
     rhs_.GetBlock(0) = 0.0;
     rhs_.GetBlock(1) = rhs;
+    rhs_.GetBlock(1) *= -1.0;
 
     Solve(rhs_, sol_);
 

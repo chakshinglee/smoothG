@@ -164,11 +164,13 @@ private:
 
     void ComputeVertexTargets(const ParMatrix& M_ext, const ParMatrix& D_ext);
     void ComputeEdgeTargets(const MixedMatrix& mgl,
-                            const ParMatrix& face_edge_perm);
+                            const ParMatrix& face_edge_perm,
+                            const std::vector<SparseMatrix>& tdof_sorts);
     void ScaleEdgeTargets(const MixedMatrix& mgl);
 
 
-    Vect2D<DenseMatrix> CollectSigma(const SparseMatrix& face_edge);
+    Vect2D<DenseMatrix> CollectSigma(const SparseMatrix& face_edge,
+                                     const std::vector<SparseMatrix>& tdof_sorts);
     Vect2D<Vector> CollectConstant(const MixedMatrix& mgl);
     Vect2D<SparseMatrix> CollectD(const MixedMatrix& mgl);
     Vect2D<SparseMatrix> CollectM(const SparseMatrix& M_local);

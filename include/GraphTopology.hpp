@@ -53,7 +53,8 @@ public:
         @param finer_graph_topology finer level graph topology
         @param coarsening_factor intended number of vertices in an aggregate
     */
-    GraphTopology(const GraphTopology& fine_topology, double coarsening_factor);
+    GraphTopology(const GraphTopology& fine_topology, double coarsening_factor,
+                  const std::vector<int>& isolated_vertices = {});
 
     /**
        @brief Build agglomerated topology relation tables of a given graph

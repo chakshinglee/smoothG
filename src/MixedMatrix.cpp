@@ -23,12 +23,13 @@
 namespace smoothg
 {
 
-MixedMatrix::MixedMatrix(const Graph& graph)
+MixedMatrix::MixedMatrix(const Graph& graph, int num_ess_vdof)
     : vertex_vdof(SparseIdentity(graph.vertex_edge_local_.Rows())),
       vertex_edof(graph.vertex_edge_local_),
       vertex_bdof(SparseMatrix(graph.vertex_edge_local_.Rows(), graph.vertex_edge_local_.Cols())),
       edge_edof(SparseIdentity(graph.vertex_edge_local_.Cols())),
       constant_vect_(graph.vertex_edge_local_.Rows(), 1.0),
+      num_ess_vdof_(num_ess_vdof),
       edge_true_edge_(graph.edge_true_edge_),
       D_local_(MakeLocalD(graph.edge_true_edge_, graph.vertex_edge_local_)),
       W_local_(graph.W_local_),
@@ -58,7 +59,7 @@ MixedMatrix::MixedMatrix(const Graph& graph)
 
     M_elem_.resize(num_vertices);
 
-    for (int i = 0; i < num_vertices; ++i)
+    for (int i = 0; i < num_vertices - num_ess_vdof_; ++i)
     {
         std::vector<int> edge_dofs = elem_dof_.GetIndices(i);
 
@@ -72,6 +73,12 @@ MixedMatrix::MixedMatrix(const Graph& graph)
             M_elem_[i](j, j) = weight_inv[edge_dofs[j]];
         }
     }
+
+    for (int i = num_vertices - num_ess_vdof_; i < num_vertices; ++i)
+    {
+        M_elem_[i].SetSize(elem_dof_.RowSize(i), 0.0);
+    }
+
 
     Init();
 }
@@ -123,6 +130,7 @@ MixedMatrix::MixedMatrix(const MixedMatrix& other) noexcept
       vertex_bdof(other.vertex_bdof),
       edge_edof(other.edge_edof),
       constant_vect_(other.constant_vect_),
+      num_ess_vdof_(other.num_ess_vdof_),
       edge_true_edge_(other.edge_true_edge_),
       M_local_(other.M_local_),
       D_local_(other.D_local_),
@@ -177,6 +185,8 @@ void swap(MixedMatrix& lhs, MixedMatrix& rhs) noexcept
     swap(lhs.vertex_bdof, rhs.vertex_bdof);
     swap(lhs.edge_edof, rhs.edge_edof);
     swap(lhs.constant_vect_, rhs.constant_vect_);
+
+    std::swap(lhs.num_ess_vdof_, rhs.num_ess_vdof_);
 }
 
 int MixedMatrix::Rows() const
@@ -318,5 +328,119 @@ SparseMatrix MixedMatrix::MakeLocalD(const ParMatrix& edge_true_edge,
     return DT.Transpose();
 }
 
+void MixedMatrix::Mult(const VectorView& x, VectorView y) const
+{
+    assert((x.size() == offsets_[2]) && (y.size() == offsets_[2]));
+
+    // CSL(8/15/18) currently eliminate manually, should do it in a better way
+
+    BlockVector block_x(x, offsets_);
+
+    for (int i = 0; i < num_ess_vdof_; ++i)
+    {
+        block_x[x.size()-1-i] = 0.0;
+    }
+
+    Vector Mx0 = M_local_.Mult(block_x.GetBlock(0));
+    Vector DTx1 = D_local_.MultAT(block_x.GetBlock(1));
+    int offset = Mx0.size();
+    for (int i = 0; i < offset; ++i)
+    {
+        y[i] = Mx0[i] + DTx1[i];
+    }
+
+    Vector Dx0 = D_local_.Mult(block_x.GetBlock(0));
+    for (int i = 0; i < Dx0.size() - num_ess_vdof_; ++i)
+    {
+        y[offset + i] = Dx0[i];
+    }
+
+    for (int i = 0; i < num_ess_vdof_; ++i)
+    {
+        y[x.size()-1-i] = x[x.size()-1-i];
+    }
+}
+
+void MixedMatrix::Mult(
+        const std::vector<double>& scale, const VectorView& x, VectorView y) const
+{
+    BlockVector block_x(x, offsets_);
+
+    for (int i = 0; i < num_ess_vdof_; ++i)
+    {
+        block_x[x.size()-1-i] = 0.0;
+    }
+
+    Vector DTx1 = D_local_.MultAT(block_x.GetBlock(1));
+    int offset = DTx1.size();
+    for (int i = 0; i < offset; ++i)
+    {
+        y[i] = DTx1[i];
+    }
+
+    Vector Dx0 = D_local_.Mult(block_x.GetBlock(0));
+    for (int i = 0; i < Dx0.size() - num_ess_vdof_; ++i)
+    {
+        y[offset + i] = Dx0[i];
+    }
+
+    for (int i = 0; i < num_ess_vdof_; ++i)
+    {
+        y[x.size()-1-i] = x[x.size()-1-i];
+    }
+
+    for (int i = 0; i < scale.size(); ++i)
+    {
+        std::vector<int> dofs = elem_dof_.GetIndices(i);
+
+        Vector x_loc = x.GetSubVector(dofs);
+        Vector y_loc = M_elem_[i].Mult(x_loc);
+        y_loc /= scale[i];
+
+        for (unsigned int j = 0; j < dofs.size(); ++j)
+        {
+            y[dofs[j]] += y_loc[j];
+        }
+    }
+}
+
+
+Vector MixedMatrix::AssembleTrueVector(const VectorView& vec_dof) const
+{
+    assert(vec_dof.size() == offsets_[2]);
+    BlockVector block_vec_dof(vec_dof, offsets_);
+    BlockVector block_vec_tdof(true_offsets_, 0.0);
+    assert(edge_true_edge_.Rows() == block_vec_dof.GetBlock(0).size());
+    edge_true_edge_.MultAT(block_vec_dof.GetBlock(0), block_vec_tdof.GetBlock(0));
+    block_vec_tdof.GetBlock(1) = block_vec_dof.GetBlock(1);
+    return block_vec_tdof;
+}
+
+Vector MixedMatrix::SelectTrueVector(const VectorView& vec_dof) const
+{
+    BlockVector block_vec_dof(vec_dof, offsets_);
+    BlockVector block_vec_tdof(true_offsets_, 0.0);
+    edge_true_edge_.GetDiag().MultAT(block_vec_dof.GetBlock(0), block_vec_tdof.GetBlock(0));
+    block_vec_tdof.GetBlock(1) = block_vec_dof.GetBlock(1);
+    return block_vec_tdof;
+}
+
+Vector MixedMatrix::RestrictTrueVector(const VectorView& vec_tdof) const
+{
+    BlockVector block_vec_tdof(vec_tdof, true_offsets_);
+    BlockVector block_vec_dof(offsets_, 0.0);
+    edge_true_edge_.GetDiag().Mult(block_vec_tdof.GetBlock(0), block_vec_dof.GetBlock(0));
+    block_vec_dof.GetBlock(1) = block_vec_tdof.GetBlock(1);
+    return block_vec_dof;
+}
+
+Vector MixedMatrix::DistributeTrueVector(const VectorView& vec_tdof) const
+{
+    BlockVector block_vec_tdof(vec_tdof, true_offsets_);
+    BlockVector block_vec_dof(offsets_, 0.0);
+    edge_true_edge_.Mult(block_vec_tdof.GetBlock(0), block_vec_dof.GetBlock(0));
+    block_vec_dof.GetBlock(1) = block_vec_tdof.GetBlock(1);
+    return block_vec_dof;
+}
 
 } // namespace smoothg

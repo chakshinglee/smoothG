@@ -63,11 +63,11 @@ public:
     */
     SPDSolver(const MixedMatrix& mgl);
 
-    /** @brief Constructor from a mixed matrix, with eliminated edge dofs
+    /** @brief Constructor from a mixed matrix, with essential vertex dofs
         @param mgl mixed matrix information
         @param elim_dofs dofs to eliminate
     */
-    SPDSolver(const MixedMatrix& mgl, const std::vector<int>& elim_dofs);
+    SPDSolver(const MixedMatrix& mgl, const std::vector<int>& ess_vdofs);
 
     /** @brief Copy Constructor */
     SPDSolver(const SPDSolver& other) noexcept;

@@ -70,7 +70,7 @@ public:
         @param mgl mixed matrix information
         @param elim_dofs dofs to eliminate
     */
-    MinresBlockSolver(const MixedMatrix& mgl, const std::vector<int>& elim_dofs);
+    MinresBlockSolver(const MixedMatrix& mgl, const std::vector<int>& ess_vdofs);
 
     /** @brief Copy Constructor */
     MinresBlockSolver(const MinresBlockSolver& other) noexcept;

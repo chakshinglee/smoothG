@@ -29,34 +29,26 @@ MinresBlockSolver::MinresBlockSolver(const MixedMatrix& mgl)
 {
 }
 
-MinresBlockSolver::MinresBlockSolver(const MixedMatrix& mgl, const std::vector<int>& elim_dofs)
-    : MGLSolver(mgl), M_(mgl.GlobalM()), /*D_(mgl.GlobalD()), DT_(D_.Transpose()),*/ W_(mgl.GlobalW()),
+MinresBlockSolver::MinresBlockSolver(const MixedMatrix& mgl, const std::vector<int>& ess_vdofs)
+    : MGLSolver(mgl, ess_vdofs), M_(mgl.GlobalM()), W_(mgl.GlobalW()),
       edge_true_edge_(mgl.EdgeTrueEdge()),
       op_(mgl.TrueOffsets()), prec_(mgl.TrueOffsets()),
       true_rhs_(mgl.TrueOffsets()), true_sol_(mgl.TrueOffsets())
 {
-    SparseMatrix M_elim = mgl.LocalM();
     SparseMatrix D_elim = mgl.LocalD();
 
-    if (!use_w_ && myid_ == 0)
+    if (ess_vdofs_.size() ==0 && !use_w_ && myid_ == 0)
     {
-        D_elim.EliminateRow(0);
+        ess_vdofs_.push_back(0);
     }
 
-    std::vector<int> marker(D_elim.Cols(), 0);
-
-    for (auto&& dof : elim_dofs)
+    for (auto&& dof : ess_vdofs_)
     {
-        marker[dof] = 1;
+        D_elim.EliminateRow(dof);
     }
 
-    M_elim.EliminateRowCol(marker);
-    D_elim.EliminateCol(marker);
-
-    ParMatrix M_elim_g(comm_, std::move(M_elim));
     ParMatrix D_elim_g(comm_, std::move(D_elim));
 
-    M_ = parlinalgcpp::RAP(M_elim_g, mgl.EdgeTrueEdge());
     D_ = D_elim_g.Mult(mgl.EdgeTrueEdge());
     DT_ = D_.Transpose();
 
@@ -64,13 +56,13 @@ MinresBlockSolver::MinresBlockSolver(const MixedMatrix& mgl, const std::vector<i
     MinvDT.InverseScaleRows(M_.GetDiag().GetDiag());
     ParMatrix schur_block = D_.Mult(MinvDT);
 
-    if (!use_w_)
+    if (!use_w_) //this part need revisit
     {
         CooMatrix elim_dof(D_.Rows(), D_.Rows());
 
-        if (myid_ == 0)
+        for (auto&& dof : ess_vdofs_)
         {
-            elim_dof.Add(0, 0, 1.0);
+            elim_dof.Add(dof, dof, 1.0);
         }
 
         SparseMatrix W = elim_dof.ToSparse();
@@ -146,12 +138,12 @@ void MinresBlockSolver::Solve(const BlockVector& rhs, BlockVector& sol) const
     edge_true_edge_.MultAT(rhs.GetBlock(0), true_rhs_.GetBlock(0));
     true_rhs_.GetBlock(1) = rhs.GetBlock(1);
 
-    edge_true_edge_.MultAT(sol.GetBlock(0), true_sol_.GetBlock(0));
+    edge_true_edge_.GetDiag().MultAT(sol.GetBlock(0), true_sol_.GetBlock(0));
     true_sol_.GetBlock(1) = sol.GetBlock(1);
 
-    if (!use_w_ && myid_ == 0)
+    for (auto&& dof : ess_vdofs_)
     {
-        true_rhs_.GetBlock(1)[0] = 0.0;
+        true_rhs_.GetBlock(1)[dof] = sol.GetBlock(1)[dof]; // only correct when sol[dof] == 0
     }
 
     pminres_.Mult(true_rhs_, true_sol_);

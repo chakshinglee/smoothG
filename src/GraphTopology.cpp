@@ -31,10 +31,12 @@ GraphTopology::GraphTopology(const Graph& graph)
     Init(vertex_edge, part, graph.edge_edge_, graph.edge_true_edge_);
 }
 
-GraphTopology::GraphTopology(const GraphTopology& fine_topology, double coarsening_factor)
+GraphTopology::GraphTopology(const GraphTopology& fine_topology, double coarsening_factor,
+                             const std::vector<int>& isolated_vertices)
 {
     const auto& vertex_edge = fine_topology.agg_face_local_;
-    const auto& part = PartitionAAT(vertex_edge, coarsening_factor, 1.0);
+    const auto& part = PartitionAAT(vertex_edge, coarsening_factor, 2.0,
+                                    true, isolated_vertices);
 
     Init(vertex_edge, part, fine_topology.face_face_, fine_topology.face_true_face_);
 }

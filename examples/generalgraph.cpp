@@ -165,7 +165,6 @@ int main(int argc, char* argv[])
     {
         fine_rhs.GetBlock(1) = ReadVertexVector(graph, fiedler_filename);
     }
-
     /// [Right Hand Side]
 
     /// [Solve and Check Error]

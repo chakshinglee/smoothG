@@ -21,3 +21,4 @@
 #include "GraphUpscale.hpp"
 #include "UpscaleOperators.hpp"
 #include "GraphGenerator.hpp"
+#include "NonlinearMG.hpp"

@@ -280,14 +280,17 @@ struct MpiSession
     int myid_;
 };
 
-/** @brief Partitions matrix = A * A^T
+/** @brief Partitions a graph with adjacency matrix A * A^T
 
-    @param A matrix to partition
+    @param A vertex to edge relation of the graph to partition
     @param coarsening_factor determine number of parts to partition into
-    @returns partitioning of A * A^T
+    @param isolated_vertices vertices that each forms a partition
+    @returns partitioning of the graph associated with A
 */
 std::vector<int> PartitionAAT(const SparseMatrix& A, double coarsening_factor,
-                              double ubal = 2.0, bool contig = true);
+                              double ubal = 2.0, bool contig = true,
+                              const std::vector<int>& isolated_vertices = {});
+
 
 
 /** @brief Read serial vector from file and extract local portion
@@ -382,6 +385,24 @@ void OffsetMultAT(const linalgcpp::Operator& A, const DenseMatrix& input, DenseM
 
 DenseMatrix OuterProduct(const VectorView& lhs, const VectorView& rhs);
 void OuterProduct(const VectorView& lhs, const VectorView& rhs, DenseMatrix& product);
+
+double Min(MPI_Comm comm, const VectorView& vect);
+
+template<typename T>
+void Print(const std::vector<T>& vec, std::ostream& out = std::cout)
+{
+    for (unsigned int i = 0; i < vec.size(); ++i)
+    {
+        out << vec[i] << "\n";
+    }
+    out << "\n";
+}
+
+template<typename T>
+T Sum(std::vector<T> container, T init)
+{
+    return std::accumulate(container.begin(), container.end(), init);
+}
 
 } //namespace smoothg
 

@@ -40,7 +40,7 @@ public:
     /** @brief Constructor from a mixed matrix
         @param mgl mixed matrix information
     */
-    MGLSolver(const MixedMatrix& mgl);
+    MGLSolver(const MixedMatrix& mgl, const std::vector<int>& ess_vdofs = {});
 
     /** @brief Copy Constructor */
     MGLSolver(const MGLSolver& other) noexcept;
@@ -108,6 +108,8 @@ protected:
     int nnz_ = 0;
     mutable int num_iterations_ = 0;
     mutable double timing_ = 0;
+
+    std::vector<int> ess_vdofs_;
 };
 
 } // namespace smoothg

@@ -54,8 +54,10 @@ find_package(parlinalgcpp REQUIRED)
 find_package(partition REQUIRED)
 find_package(sparsesolve REQUIRED)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
+find_package(MFEM REQUIRED)
+
 if (SMOOTHG_USE_ARPACK)
-    list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
     find_package(ARPACK REQUIRED)
 endif()
 
@@ -74,6 +76,7 @@ add_library(smoothG
     src/SharedEntityComm.cpp
     src/SPDSolver.cpp
     src/Utilities.cpp
+    src/NonlinearMG.cpp
 )
 
 set_target_properties(smoothG PROPERTIES
@@ -92,6 +95,7 @@ target_link_libraries(smoothG
         sparsesolve::sparsesolve
         linalgcpp::linalgcpp
         $<$<BOOL:${SMOOTHG_USE_ARPACK}>:Arpack::Arpack>
+        mfem::mfem
 )
 
 target_include_directories(smoothG

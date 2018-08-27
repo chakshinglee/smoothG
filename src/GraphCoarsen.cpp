@@ -72,8 +72,118 @@ GraphCoarsen::GraphCoarsen(GraphTopology gt, const MixedMatrix& mgl,
     agg_vertexdof_ = gt_.agg_vertex_local_.Mult(mgl.vertex_vdof);
     face_edgedof_ = gt_.face_edge_local_.Mult(mgl.edge_edof);
 
+    // added code
+
+    const SparseMatrix& face_edge = face_perm_edge.GetDiag();
+    std::vector<SparseMatrix> tdof_sorts(gt_.face_true_face_.Rows());
+    for (unsigned int face = 0; face < tdof_sorts.size(); ++face)
+    {
+        if (gt_.face_face_.GetOffd().RowSize(face)) // face is shared
+        {
+            const std::vector<int> edges = face_edge.GetIndices(face);
+            bool is_owned = gt_.face_true_face_.GetDiag().RowSize(face);
+            auto& permute_map = is_owned ? permute_e.GetDiag() : permute_e.GetOffd();
+
+            std::map<int, int> tdof_map;
+            for (unsigned int i = 0; i < edges.size(); ++i)
+            {
+                int dof = edges[i];
+                tdof_map[permute_map.GetIndices(dof)[0]] = i;
+            }
+
+            CooMatrix tdof_sort(edges.size());
+            int count = 0;
+            for (auto it = tdof_map.begin(); it != tdof_map.end(); ++it)
+            {
+                tdof_sort.Add(count++, it->second, 1.0);
+            }
+            tdof_sorts[face] = tdof_sort.ToSparse();
+        }
+    }
+
+    // end added code
+
     ComputeVertexTargets(M_ext_global, D_ext_global);
-    ComputeEdgeTargets(mgl, face_perm_edge);
+    ComputeEdgeTargets(mgl, face_perm_edge, tdof_sorts);
+
+    // debug code
+//    const SparseMatrix& face_edge = face_perm_edge.GetDiag();
+//    const ParMatrix& e_te = gt_.edge_true_edge_;
+//    auto& colmap = permute_e.GetColMap();
+//    int start = e_te.GetColStarts()[0];
+//    ParMatrix tf_f = gt_.face_true_face_.Transpose();
+//    int owner = 0;int count = 0;
+
+//    for (int face = 0; face < tf_f.Cols(); ++face)
+//    {
+//        if (gt_.face_face_.GetOffd().RowSize(face) && gt_.face_true_face_.GetOffd().RowSize(face) == 0)
+//            count++;
+//    }
+//    std::cout<<"count = "<<count<<"\n";
+//    count = 0;
+
+//    for (int face = 0; face < tf_f.Cols(); ++face)
+//    {
+//        if (gt_.face_face_.GetOffd().RowSize(face) && gt_.face_true_face_.GetOffd().RowSize(face) == 0)
+//        {
+//            if(count == 4)
+//            {
+//                int tface = gt_.face_true_face_.GetDiag().GetIndices(face)[0];
+
+//                assert(tf_f.GetDiag().GetIndices(tface)[0] == face);
+//                std::cout<<"first shared tdof owner dof = "<<
+//                           tf_f.GetDiag().GetIndices(tface)[0]<<"\n";
+
+//                std::cout<<"first shared tdof slave dof = "<<
+//                           tf_f.GetColMap()[tf_f.GetOffd().GetIndices(tface)[0]]<<"\n";
+
+//                owner = 1;
+//                break;
+//            }
+//            count++;
+//        }
+//    }
+
+//    if (owner)
+//    {
+//        for (int face = 0; face < tf_f.Cols(); ++face)
+//        {
+//            if (face == 19)
+//            {
+////                assert(gt_.face_true_face_.GetDiag().RowSize(face));
+////                std::cout<<"from owner:\n";
+////                for (auto& dof : gt_.face_edge_local_.GetIndices(face))
+////                {
+////                    assert(e_te.GetDiag().RowSize(dof));
+////                }
+
+//                for (auto& dof : face_edge.GetIndices(face))
+//                {
+//                    int tdof = permute_e.GetDiag().GetIndices(dof)[0];
+//                    std::cout<< tdof+start <<"\n";
+//                }
+//            }
+//        }
+//    }
+
+//    MPI_Barrier(comm);
+
+//    if (!owner)
+//    {
+//        for (int face = 0; face < tf_f.Cols(); ++face)
+//        {
+//            if (face == (44 - gt_.face_true_face_.GetRowStarts()[0]))
+//            {
+//                std::cout<<"from slave:\n";
+//                for (auto& dof : face_edge.GetIndices(face))
+//                {
+//                    int tdof = permute_e.GetOffd().GetIndices(dof)[0];
+//                    std::cout<< colmap[tdof] <<"\n";
+//                }
+//            }
+//        }
+//    }
+    // end debug code
 
     BuildFaceCoarseDof();
     BuildAggBubbleDof();
@@ -154,6 +264,11 @@ void swap(GraphCoarsen& lhs, GraphCoarsen& rhs) noexcept
     // End Temp Stuff
 }
 
+void MakeTrueDofSortingMap()
+{
+
+}
+
 void GraphCoarsen::ComputeVertexTargets(const ParMatrix& M_ext_global,
                                         const ParMatrix& D_ext_global)
 {
@@ -201,7 +316,8 @@ void GraphCoarsen::ComputeVertexTargets(const ParMatrix& M_ext_global,
     }
 }
 
-std::vector<std::vector<DenseMatrix>> GraphCoarsen::CollectSigma(const SparseMatrix& face_edgedof)
+std::vector<std::vector<DenseMatrix>> GraphCoarsen::CollectSigma(
+        const SparseMatrix& face_edgedof, const std::vector<SparseMatrix>& tdof_sorts)
 {
     SharedEntityComm<DenseMatrix> sec_sigma(gt_.face_true_face_);
 
@@ -230,6 +346,11 @@ std::vector<std::vector<DenseMatrix>> GraphCoarsen::CollectSigma(const SparseMat
 
                 DenseMatrix face_restrict = RestrictLocal(agg_ext_sigma_[agg], col_marker_,
                                                           edge_dofs_ext, face_dofs);
+
+                if (neighbors.size() == 1)
+                {
+                    face_restrict = tdof_sorts[face].Mult(face_restrict);
+                }
 
                 face_sigma.SetCol(col_count, face_restrict);
                 col_count += face_restrict.Cols();
@@ -332,11 +453,12 @@ std::vector<std::vector<SparseMatrix>> GraphCoarsen::CollectM(const SparseMatrix
 }
 
 void GraphCoarsen::ComputeEdgeTargets(const MixedMatrix& mgl,
-                                      const ParMatrix& face_perm_edge)
+                                      const ParMatrix& face_perm_edge,
+                                      const std::vector<SparseMatrix>& tdof_sorts)
 {
     const SparseMatrix& face_edge = face_perm_edge.GetDiag();
 
-    auto shared_sigma = CollectSigma(face_edge);
+    auto shared_sigma = CollectSigma(face_edge, tdof_sorts);
     auto shared_constant = CollectConstant(mgl);
     auto shared_M = CollectM(mgl.LocalM());
     auto shared_D = CollectD(mgl);
@@ -381,7 +503,7 @@ void GraphCoarsen::ComputeEdgeTargets(const MixedMatrix& mgl,
         GraphEdgeSolver solver(std::move(M_local), std::move(D_local));
         Vector one_neg_one = MakeOneNegOne(constant_local, split);
 
-        if (std::fabs(constant_local.Mult(one_neg_one)) > 1e-12)
+        if (std::fabs(constant_local.Mult(one_neg_one)) > 1e-8)
         {
             printf("%d constnat * one neg one : %.8e\n", MyId(), constant_local.Mult(one_neg_one) );
         }
@@ -393,6 +515,14 @@ void GraphCoarsen::ComputeEdgeTargets(const MixedMatrix& mgl,
     }
 
     sec_face.Broadcast(edge_targets_);
+
+    for (int face = 0; face < num_faces; ++face)
+    {
+        if (face_shared.RowSize(face) > 0)
+        {
+            edge_targets_[face] = tdof_sorts[face].MultAT(edge_targets_[face]);
+        }
+    }
 
     ScaleEdgeTargets(mgl);
 }
@@ -443,12 +573,12 @@ void GraphCoarsen::ScaleEdgeTargets(const MixedMatrix& mgl)
             trace.Sub(alpha * beta, pv_trace);
         }
 
-        if (num_traces > 1)
-        {
-            edge_traces.GetCol(1, num_traces, sigma_face);
-            sigma_face.SVD();
-            edge_traces.SetCol(1, sigma_face);
-        }
+//        if (num_traces > 1)
+//        {
+//            edge_traces.GetCol(1, num_traces, sigma_face);
+//            sigma_face.SVD();
+//            edge_traces.SetCol(1, sigma_face);
+//        }
     }
 }
 
@@ -803,7 +933,20 @@ void GraphCoarsen::BuildPedge(const MixedMatrix& mgl)
         mgl.constant_vect_.GetSubVector(vertex_dofs, one);
 
         // TODO(gelever1): We may still be able to continue w/ jsut one vertex dof
-        assert (edge_dofs.size() > 0);
+//        assert (edge_dofs.size() > 0);
+        if (edge_dofs.size() == 0)
+        {
+            for (auto face : faces)
+            {
+                std::vector<int> face_fine_dofs = face_edge.GetIndices(face);
+
+                SparseMatrix D_transfer = mgl.LocalD().GetSubMatrix(vertex_dofs, face_fine_dofs, col_marker_);
+                D_trace.SetSize(D_transfer.Rows(), edge_targets_[face].Cols());
+                D_transfer.Mult(edge_targets_[face], D_trace);
+                D_trace_sum_[agg].push_back(D_trace.GetColView(0).Mult(vertex_targets_[agg].GetColView(0)));
+            }
+            continue;
+        }
 
         GraphEdgeSolver solver(std::move(M), std::move(D));
 
@@ -864,7 +1007,7 @@ void GraphCoarsen::BuildQedge(const MixedMatrix& mgl)
     DenseMatrix Q_i;
 
     DenseMatrix sigma_f;
-    DenseMatrix DT_one_sigma_f_PV;
+    DenseMatrix DT_one_sigma_f_PV, DT_one_pi_f_PV;
 
     Vector sigma_f_PV;
     Vector one_rep;
@@ -924,14 +1067,26 @@ void GraphCoarsen::BuildQedge(const MixedMatrix& mgl)
         {
             trace.GetCol(1, trace.Cols(), sigma_f);
 
-            sigma_f_PV.SetSize(sigma_f.Cols());
-            sigma_f.MultAT(PV_trace, sigma_f_PV);
-            OuterProduct(one_D, sigma_f_PV, DT_one_sigma_f_PV);
-            DT_one_sigma_f_PV /= one_D_PV;
+            DenseMatrix sigma_f_T = sigma_f.Transpose();
+            DenseMatrix sigma_f_prod = sigma_f_T.Mult(sigma_f);
+            sigma_f_prod.Invert();
 
-            sigma_f -= DT_one_sigma_f_PV;
+            DenseMatrix pi_f = sigma_f.Mult(sigma_f_prod);
 
-            Q_i.SetCol(1, sigma_f);
+            Vector pi_f_PV = pi_f.MultAT(PV_trace);
+            OuterProduct(one_D, pi_f_PV, DT_one_pi_f_PV);
+            DT_one_pi_f_PV /= one_D_PV;
+
+            pi_f -= DT_one_pi_f_PV;
+
+//            sigma_f_PV.SetSize(sigma_f.Cols());
+//            sigma_f.MultAT(PV_trace, sigma_f_PV);
+//            OuterProduct(one_D, sigma_f_PV, DT_one_sigma_f_PV);
+//            DT_one_sigma_f_PV /= one_D_PV;
+
+//            sigma_f -= DT_one_sigma_f_PV;
+
+            Q_i.SetCol(1, pi_f);
         }
 
         if (one_D_PV < 0)
@@ -1274,12 +1429,14 @@ MixedMatrix GraphCoarsen::Coarsen(const MixedMatrix& mgl) const
     mm.edge_edof = 1.0;
     mm.constant_vect_ = P_vertex_.MultAT(mgl.constant_vect_);
 
+    mm.num_ess_vdof_ = mgl.num_ess_vdof_;
+
     return mm;
 }
 
 void GraphCoarsen::DebugChecks(const MixedMatrix& mgl) const
 {
-    /*
+//    /*
     double test_tol = 1e-10;
 
     // PTP should be identity
@@ -1349,7 +1506,7 @@ void GraphCoarsen::DebugChecks(const MixedMatrix& mgl) const
             printf("%d Warning: D PQT = PPT D difference %.8e\n", MyId(), norm);
         }
     }
-    */
+//    */
 }
 
 Vector GraphCoarsen::Interpolate(const VectorView& coarse_vect) const

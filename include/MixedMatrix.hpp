@@ -46,7 +46,7 @@ public:
         @param global_weight Global edge weights
         @param W_global optional global W block
     */
-    MixedMatrix(const Graph& graph);
+    MixedMatrix(const Graph& graph, int num_ess_vdof = 0);
 
     /** @brief Constructor with given local matrices
         @param M_elem Local M element matrices
@@ -154,6 +154,18 @@ public:
     /* @brief Block true offsets */
     const std::vector<int>& TrueOffsets() const { return true_offsets_; }
 
+    void Mult(const VectorView& x, VectorView y) const;
+
+    void Mult(const std::vector<double>& scale, const VectorView& x, VectorView y) const;
+
+    Vector AssembleTrueVector(const VectorView& vec_dof) const;
+
+    Vector SelectTrueVector(const VectorView& vec_dof) const;
+
+    Vector RestrictTrueVector(const VectorView& vec_tdof) const;
+
+    Vector DistributeTrueVector(const VectorView& vec_tdof) const;
+
     SparseMatrix vertex_vdof;
     SparseMatrix vertex_edof;
     SparseMatrix vertex_bdof;
@@ -161,6 +173,7 @@ public:
 
     Vector constant_vect_;
 
+    int num_ess_vdof_;
 protected:
     void Init();
 

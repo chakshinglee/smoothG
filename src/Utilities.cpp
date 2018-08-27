@@ -723,15 +723,55 @@ SparseMatrix Add(double alpha, const SparseMatrix& A, double beta, const SparseM
     return coo.ToSparse();
 }
 
+void IsolatePreProcess(const SparseMatrix& wtable,
+                       const std::vector<int>& isolated_vertices,
+                       SparseMatrix& sub_table,
+                       std::vector<int>& sub_to_global)
+{
+    sub_to_global.resize(0);
+    sub_to_global.reserve(wtable.Rows());
+    std::vector<int> full_indices(wtable.Rows());
+    std::iota(full_indices.begin(), full_indices.end(), 0);
+    std::set_difference(full_indices.begin(), full_indices.end(),
+                        isolated_vertices.begin(), isolated_vertices.end(),
+                        std::back_inserter(sub_to_global));
+
+    sub_table = wtable.GetSubMatrix(sub_to_global, sub_to_global);
+}
+
 std::vector<int> PartitionAAT(const SparseMatrix& A, double coarsening_factor, double ubal,
-                              bool contig)
+                              bool contig, const std::vector<int>& isolated_vertices)
 {
     SparseMatrix A_T = A.Transpose();
     SparseMatrix AA_T = A.Mult(A_T);
 
     int num_parts = std::max(1.0, (A.Rows() / coarsening_factor) + 0.5);
+    if (isolated_vertices.size() == 0)
+    {
+        return Partition(AA_T, num_parts, ubal, contig);
+    }
+    else
+    {
+        SparseMatrix sub_AA_T;
+        std::vector<int> sub_verts;
+        IsolatePreProcess(AA_T, isolated_vertices, sub_AA_T, sub_verts);
 
-    return Partition(AA_T, num_parts, ubal, contig);
+        auto sub_part = Partition(sub_AA_T, num_parts, ubal, contig);
+
+        std::vector<int> partitioning(A.Rows());
+        for (unsigned int i = 0; i < sub_part.size(); ++i)
+        {
+            partitioning[sub_verts[i]] = sub_part[i];
+        }
+
+        num_parts = *(std::max_element(sub_part.begin(), sub_part.end()));
+        for (auto vertex : isolated_vertices)
+        {
+            partitioning[vertex] = ++num_parts;
+        }
+
+        return partitioning;
+    }
 }
 
 Vector ReadVector(const std::string& filename,
@@ -951,5 +991,14 @@ void OuterProduct(const VectorView& lhs, const VectorView& rhs, DenseMatrix& pro
     }
 }
 
+double Min(MPI_Comm comm, const VectorView& vect)
+{
+    double local_min = Min(vect);
+
+    double global_min;
+    MPI_Allreduce(&local_min, &global_min, 1, MPI_DOUBLE, MPI_MIN, comm);
+
+    return global_min;
+}
 
 } // namespace smoothg

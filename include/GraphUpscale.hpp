@@ -69,11 +69,11 @@ struct UpscaleParams
     */
     UpscaleParams(double spect_tol_in, int max_evects_in, bool hybridization_in = false,
                   int max_levels_in = 2, double coarsen_factor_in = 4.0,
-                  const std::vector<int>& elim_edge_dofs_in = {})
+                  const std::vector<int>& ess_vdofs = {})
         : hybridization(hybridization_in),
           max_levels(max_levels_in), coarsen_factor(coarsen_factor_in),
           spectral_pair(max_levels_in - 1, {spect_tol_in, max_evects_in}),
-          elim_edge_dofs(elim_edge_dofs_in)
+          ess_vdofs(ess_vdofs)
           { }
 
     bool hybridization;
@@ -81,7 +81,7 @@ struct UpscaleParams
     double coarsen_factor;
 
     std::vector<SpectralPair> spectral_pair;
-    std::vector<int> elim_edge_dofs;
+    std::vector<int> ess_vdofs;
 };
 
 
@@ -119,6 +119,12 @@ public:
 
     /// Wrapper for applying the upscaling, in linalgcpp terminology
     void Mult(const VectorView& x, VectorView y) const override;
+
+    /// @warning Applies the operator to x (Not the same as Mult above!!!)
+    void Mult(int level, const VectorView& x, VectorView y) const;
+
+    void Mult(int level, const std::vector<double>& scale,
+              const VectorView& x, VectorView y) const;
 
     void MultMultiLevel(const BlockVector& x, std::vector<BlockVector>& sols) const;
     std::vector<BlockVector> MultMultiLevel(const BlockVector& x) const;
@@ -247,8 +253,13 @@ public:
 
     ParMatrix ToPrimal() const;
 
+    const GraphCoarsen& GetCoarsener(int level) const { return coarsener_.at(level); }
+
+    void Project_PW_One(int level, const VectorView& x, VectorView& y) const;
+
 private:
     void MakeVectors(int level);
+    void CoarsenEssVdofs(int level, int num_dofs);
 
     std::vector<MixedMatrix> mgl_;
     std::vector<GraphCoarsen> coarsener_;
@@ -256,7 +267,7 @@ private:
     mutable std::vector<BlockVector> rhs_;
     mutable std::vector<BlockVector> sol_;
     std::vector<Vector> constant_rep_;
-    std::vector<std::vector<int>> elim_dofs_;
+    std::vector<std::vector<int>> ess_vdofs_;
 
     MPI_Comm comm_;
     int myid_;
@@ -267,6 +278,9 @@ private:
 
     bool hybridization_;
     bool do_ortho_;
+
+    // Projector from coarse space to piecewise 1 basis (on agg)
+    std::vector<SparseMatrix> proj_pw1_;
 };
 
 } // namespace smoothg
