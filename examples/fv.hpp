@@ -562,9 +562,12 @@ Graph DarcyProblem::GetFVGraph(int coarsening_factor, bool use_local_weight,
     }
 //    else
     {
-//        Print(weight_);
-//        std::cout<<"size = "<<weight_.size()<<"\n";
-        return Graph(vertex_edge_, edge_trueedge_, partitioning, weight_, W_block);
+        Graph out(vertex_edge_, edge_trueedge_, partitioning, weight_, W_block);
+        vertex_edge_ = SparseMatrix();
+        edge_trueedge_ = ParMatrix();
+        std::vector<double>().swap(weight_);
+        std::vector<Vector>().swap(local_weight_);
+        return out;
     }
 }
 
@@ -1114,6 +1117,12 @@ LognormalProblem::LognormalProblem(int nDimensions, int num_ser_ref,
     {
         rhs_u_[rhs_u_.size()-1-i] = 0.0;
     }
+    pmesh_.reset();
+    sigma_fec_.reset();
+    sigma_fes_.reset();
+    u_fec_.reset();
+    u_fes_.reset();
+    InversePermeabilityFunction::ClearMemory();
 }
 
 void LognormalProblem::SetupMesh(int nDimensions, int num_ser_ref, int num_par_ref)

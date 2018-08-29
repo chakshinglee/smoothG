@@ -220,7 +220,7 @@ private:
 
     void DebugChecks(const MixedMatrix& mgl) const;
 
-    GraphTopology gt_;
+    mutable GraphTopology gt_;
 
     int max_evects_;
     double spect_tol_;
@@ -228,18 +228,18 @@ private:
     SparseMatrix Q_edge_;
     SparseMatrix P_edge_;
     SparseMatrix P_vertex_;
-    SparseMatrix face_cdof_;
-    SparseMatrix agg_bubble_dof_;
+    mutable SparseMatrix face_cdof_;
+    mutable SparseMatrix agg_bubble_dof_;
 
-    std::vector<DenseMatrix> vertex_targets_;
+    mutable std::vector<DenseMatrix> vertex_targets_;
     std::vector<DenseMatrix> edge_targets_;
     std::vector<DenseMatrix> agg_ext_sigma_;
 
     ////////////////////
     // ML Stuff
-    SparseMatrix agg_vertexdof_;
-    SparseMatrix agg_edgedof_;
-    SparseMatrix face_edgedof_;
+    mutable SparseMatrix agg_vertexdof_;
+    mutable SparseMatrix agg_edgedof_;
+    mutable SparseMatrix face_edgedof_;
 
     ParMatrix agg_ext_vdof_;
     ParMatrix agg_ext_edof_;
@@ -248,7 +248,7 @@ private:
 
     mutable std::vector<int> col_marker_;
 
-    std::vector<std::vector<double>> D_trace_sum_;
+    mutable std::vector<std::vector<double>> D_trace_sum_;
 };
 
 } // namespace smoothg

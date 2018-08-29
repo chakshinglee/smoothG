@@ -106,85 +106,6 @@ GraphCoarsen::GraphCoarsen(GraphTopology gt, const MixedMatrix& mgl,
     ComputeVertexTargets(M_ext_global, D_ext_global);
     ComputeEdgeTargets(mgl, face_perm_edge, tdof_sorts);
 
-    // debug code
-//    const SparseMatrix& face_edge = face_perm_edge.GetDiag();
-//    const ParMatrix& e_te = gt_.edge_true_edge_;
-//    auto& colmap = permute_e.GetColMap();
-//    int start = e_te.GetColStarts()[0];
-//    ParMatrix tf_f = gt_.face_true_face_.Transpose();
-//    int owner = 0;int count = 0;
-
-//    for (int face = 0; face < tf_f.Cols(); ++face)
-//    {
-//        if (gt_.face_face_.GetOffd().RowSize(face) && gt_.face_true_face_.GetOffd().RowSize(face) == 0)
-//            count++;
-//    }
-//    std::cout<<"count = "<<count<<"\n";
-//    count = 0;
-
-//    for (int face = 0; face < tf_f.Cols(); ++face)
-//    {
-//        if (gt_.face_face_.GetOffd().RowSize(face) && gt_.face_true_face_.GetOffd().RowSize(face) == 0)
-//        {
-//            if(count == 4)
-//            {
-//                int tface = gt_.face_true_face_.GetDiag().GetIndices(face)[0];
-
-//                assert(tf_f.GetDiag().GetIndices(tface)[0] == face);
-//                std::cout<<"first shared tdof owner dof = "<<
-//                           tf_f.GetDiag().GetIndices(tface)[0]<<"\n";
-
-//                std::cout<<"first shared tdof slave dof = "<<
-//                           tf_f.GetColMap()[tf_f.GetOffd().GetIndices(tface)[0]]<<"\n";
-
-//                owner = 1;
-//                break;
-//            }
-//            count++;
-//        }
-//    }
-
-//    if (owner)
-//    {
-//        for (int face = 0; face < tf_f.Cols(); ++face)
-//        {
-//            if (face == 19)
-//            {
-////                assert(gt_.face_true_face_.GetDiag().RowSize(face));
-////                std::cout<<"from owner:\n";
-////                for (auto& dof : gt_.face_edge_local_.GetIndices(face))
-////                {
-////                    assert(e_te.GetDiag().RowSize(dof));
-////                }
-
-//                for (auto& dof : face_edge.GetIndices(face))
-//                {
-//                    int tdof = permute_e.GetDiag().GetIndices(dof)[0];
-//                    std::cout<< tdof+start <<"\n";
-//                }
-//            }
-//        }
-//    }
-
-//    MPI_Barrier(comm);
-
-//    if (!owner)
-//    {
-//        for (int face = 0; face < tf_f.Cols(); ++face)
-//        {
-//            if (face == (44 - gt_.face_true_face_.GetRowStarts()[0]))
-//            {
-//                std::cout<<"from slave:\n";
-//                for (auto& dof : face_edge.GetIndices(face))
-//                {
-//                    int tdof = permute_e.GetOffd().GetIndices(dof)[0];
-//                    std::cout<< colmap[tdof] <<"\n";
-//                }
-//            }
-//        }
-//    }
-    // end debug code
-
     BuildFaceCoarseDof();
     BuildAggBubbleDof();
 
@@ -194,6 +115,11 @@ GraphCoarsen::GraphCoarsen(GraphTopology gt, const MixedMatrix& mgl,
     BuildPedge(mgl);
 
     DebugChecks(mgl);
+
+    std::vector<DenseMatrix>().swap(agg_ext_sigma_);
+    std::vector<DenseMatrix>().swap(edge_targets_);
+    agg_ext_vdof_ = ParMatrix();
+    agg_ext_edof_ = ParMatrix();
 }
 
 GraphCoarsen::GraphCoarsen(const GraphCoarsen& other) noexcept
@@ -1403,6 +1329,9 @@ MixedMatrix GraphCoarsen::Coarsen(const MixedMatrix& mgl) const
     auto M_elem = BuildElemM(mgl, agg_cdof_edge);
 
     SparseMatrix D_c = BuildCoarseD();
+    std::vector<std::vector<double>>().swap(D_trace_sum_);
+    std::vector<DenseMatrix>().swap(vertex_targets_);
+
     SparseMatrix W_c;
 
     if (mgl.LocalW().Rows() == P_vertex_.Rows())
@@ -1430,6 +1359,13 @@ MixedMatrix GraphCoarsen::Coarsen(const MixedMatrix& mgl) const
     mm.constant_vect_ = P_vertex_.MultAT(mgl.constant_vect_);
 
     mm.num_ess_vdof_ = mgl.num_ess_vdof_;
+
+    gt_ = GraphTopology();
+    agg_vertexdof_ = SparseMatrix();
+    agg_edgedof_ = SparseMatrix();
+    agg_bubble_dof_ = SparseMatrix();
+    face_edgedof_ = SparseMatrix();
+    face_cdof_ = SparseMatrix();
 
     return mm;
 }

@@ -109,7 +109,7 @@ int main(int argc, char* argv[])
     double spect_tol = 1.0;
     bool hybridization = false;
     int num_levels = 2;
-    int coarsening_factor = 100;
+    double coarsening_factor = 10.0;
 
     int slice = 0;
     int num_sr = 3;
@@ -154,34 +154,6 @@ int main(int argc, char* argv[])
     BlockVector rhs(upscale.GetBlockVector(0));
     rhs.GetBlock(0) = 0.0;
     rhs.GetBlock(1) = fv_problem.GetVertexRHS();
-
-
-//    auto& Pv = upscale.GetCoarsener(0).Pvertex();
-
-//    auto& Psigma_ = upscale.GetCoarsener(0).Pedge();
-//    Vector tmp(Psigma_.Rows());
-//    tmp.Randomize();
-
-//    Vector tmp_c(Psigma_.Cols());
-//    Psigma_.MultAT(tmp, tmp_c);
-
-//    Vector ttmp_c = upscale.GetMatrix(1).EdgeTrueEdge().MultAT(tmp_c);
-
-//    double norm = parlinalgcpp::ParL2Norm(comm, ttmp_c);
-
-//    if (myid == 0) std::cout<<"first method, norm = "<<norm<<"\n";
-
-//    Vector ttmp = upscale.GetMatrix(0).EdgeTrueEdge().MultAT(tmp);
-//    upscale.GetMatrix(0).EdgeTrueEdge().GetDiag().Mult(ttmp, tmp);
-
-//    Psigma_.MultAT(tmp, tmp_c);
-
-//    upscale.GetMatrix(1).EdgeTrueEdge().MultAT(tmp_c, ttmp_c);
-//    norm = parlinalgcpp::ParL2Norm(comm, ttmp_c);
-
-//    if (myid == 0) std::cout<<"second method, norm = "<<norm<<"\n";
-
-//return 0;
 
     Timer timer(Timer::Start::True);
 
@@ -324,7 +296,7 @@ void SingleLevelSolver::PicardStep(const BlockVector& rhs, BlockVector& x)
     Kappa(p_, kp_);
     up_.MakeSolver(level_, kp_);
 
-    if (level_ < up_.NumLevels() - 2)
+    if (level_ < up_.NumLevels() - 1)
         up_.SetMaxIter(max_num_iter_ * 10);
     else
         up_.SetMaxIter(max_num_iter_ * 20);

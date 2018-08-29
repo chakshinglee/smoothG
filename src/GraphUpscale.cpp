@@ -96,6 +96,7 @@ GraphUpscale::GraphUpscale(const Graph& graph, const UpscaleParams& params)
         MakeVectors(level);
     }
 
+
     do_ortho_ = !GetMatrix(0).CheckW() && params.ess_vdofs.size() == 0;
 
     timer.Click();
