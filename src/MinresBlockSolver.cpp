@@ -42,10 +42,12 @@ MinresBlockSolver::MinresBlockSolver(const MixedMatrix& mgl, const std::vector<i
         ess_vdofs_.push_back(0);
     }
 
-    for (auto&& dof : ess_vdofs_)
-    {
-        D_elim.EliminateRow(dof);
-    }
+//    for (auto&& dof : ess_vdofs_)
+//    {
+//        D_elim.EliminateRow(dof);
+//    }
+    neg_D_left_ = D_elim.EliminateRows(ess_vdofs_);
+    neg_D_left_ *= -1.0;
 
     ParMatrix D_elim_g(comm_, std::move(D_elim));
 
@@ -135,7 +137,10 @@ void MinresBlockSolver::Solve(const BlockVector& rhs, BlockVector& sol) const
 {
     Timer timer(Timer::Start::True);
 
-    edge_true_edge_.MultAT(rhs.GetBlock(0), true_rhs_.GetBlock(0));
+    Vector D_sol1 = neg_D_left_.MultAT(sol.GetBlock(1));
+    D_sol1 += rhs.GetBlock(0);
+
+    edge_true_edge_.MultAT(D_sol1, true_rhs_.GetBlock(0));
     true_rhs_.GetBlock(1) = rhs.GetBlock(1);
 
     edge_true_edge_.GetDiag().MultAT(sol.GetBlock(0), true_sol_.GetBlock(0));

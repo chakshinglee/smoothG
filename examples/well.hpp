@@ -21,7 +21,7 @@
 */
 
 #include "smoothG.hpp"
-#include "/Users/lee1029/Codes/mfem-install/include/mfem.hpp"
+#include "mfem.hpp"
 
 using std::unique_ptr;
 using std::shared_ptr;

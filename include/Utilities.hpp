@@ -291,7 +291,10 @@ std::vector<int> PartitionAAT(const SparseMatrix& A, double coarsening_factor,
                               double ubal = 2.0, bool contig = true,
                               const std::vector<int>& isolated_vertices = {});
 
-
+std::vector<int> PartitionAAT(const SparseMatrix& A, const std::vector<double>& weight,
+                              double coarsening_factor, double ubal = 2.0,
+                              bool contig = true, bool weighted = true,
+                              const std::vector<int>& isolated_vertices = {});
 
 /** @brief Read serial vector from file and extract local portion
 
@@ -386,6 +389,19 @@ void OffsetMultAT(const linalgcpp::Operator& A, const DenseMatrix& input, DenseM
 DenseMatrix OuterProduct(const VectorView& lhs, const VectorView& rhs);
 void OuterProduct(const VectorView& lhs, const VectorView& rhs, DenseMatrix& product);
 
+/// SparseMatrix triple product
+inline
+SparseMatrix Mult(const SparseMatrix& R, const SparseMatrix& A, const SparseMatrix& P)
+{
+    return R.Mult(A).Mult(P);
+}
+/// ParMatrix triple product
+inline
+ParMatrix Mult(const ParMatrix& R, const ParMatrix& A, const ParMatrix& P)
+{
+    return R.Mult(A).Mult(P);
+}
+
 double Min(MPI_Comm comm, const VectorView& vect);
 
 template<typename T>
@@ -403,6 +419,8 @@ T Sum(std::vector<T> container, T init)
 {
     return std::accumulate(container.begin(), container.end(), init);
 }
+
+SparseMatrix RescaleLog(SparseMatrix A);
 
 } //namespace smoothg
 

@@ -742,13 +742,28 @@ void IsolatePreProcess(const SparseMatrix& wtable,
 std::vector<int> PartitionAAT(const SparseMatrix& A, double coarsening_factor, double ubal,
                               bool contig, const std::vector<int>& isolated_vertices)
 {
+    std::vector<double> weight(A.Cols(), 1.0);
+    return PartitionAAT(A, weight, coarsening_factor, ubal, contig, false, isolated_vertices);
+}
+
+std::vector<int> PartitionAAT(const SparseMatrix& A, const std::vector<double>& weight,
+                              double coarsening_factor, double ubal, bool contig,
+                              bool weighted, const std::vector<int>& isolated_vertices)
+{
+    std::vector<double> weight_inv_vec(weight);
+    for (auto& w : weight_inv_vec)
+    {
+        w = 1./w;
+    }
+    SparseMatrix weight_inv(weight_inv_vec);
+
     SparseMatrix A_T = A.Transpose();
-    SparseMatrix AA_T = A.Mult(A_T);
+    SparseMatrix AA_T = RescaleLog(Mult(A, weight_inv, A_T));
 
     int num_parts = std::max(1.0, (A.Rows() / coarsening_factor) + 0.5);
     if (isolated_vertices.size() == 0)
     {
-        return Partition(AA_T, num_parts, ubal, contig);
+        return Partition(AA_T, num_parts, ubal, contig, weighted);
     }
     else
     {
@@ -756,7 +771,7 @@ std::vector<int> PartitionAAT(const SparseMatrix& A, double coarsening_factor, d
         std::vector<int> sub_verts;
         IsolatePreProcess(AA_T, isolated_vertices, sub_AA_T, sub_verts);
 
-        auto sub_part = Partition(sub_AA_T, num_parts, ubal, contig);
+        auto sub_part = Partition(sub_AA_T, num_parts, ubal, contig, weighted);
 
         std::vector<int> partitioning(A.Rows());
         for (unsigned int i = 0; i < sub_part.size(); ++i)
@@ -1000,5 +1015,27 @@ double Min(MPI_Comm comm, const VectorView& vect)
 
     return global_min;
 }
+
+SparseMatrix RescaleLog(SparseMatrix A)
+{
+    std::vector<int>& indptr = A.GetIndptr();
+    std::vector<int>& indices = A.GetIndices();
+    std::vector<double>& data = A.GetData();
+    int num_rows = A.Rows();
+    double weight_min = *std::min_element(std::begin(data), std::end(data));
+    assert(weight_min != 0);
+    for (int i = 0; i < num_rows; ++i)
+    {
+        for (int j = indptr[i]; j < indptr[i + 1]; ++j)
+        {
+            if (i != indices[j])
+            {
+                data[j] = std::floor(std::log2(data[j] / weight_min)) + 1;
+            }
+        }
+    }
+    return std::move(A);
+}
+
 
 } // namespace smoothg

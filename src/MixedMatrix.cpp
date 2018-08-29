@@ -389,7 +389,7 @@ void MixedMatrix::Mult(
         y[x.size()-1-i] = x[x.size()-1-i];
     }
 
-    for (int i = 0; i < scale.size(); ++i)
+    for (unsigned int i = 0; i < scale.size(); ++i)
     {
         std::vector<int> dofs = elem_dof_.GetIndices(i);
 
