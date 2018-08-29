@@ -555,7 +555,8 @@ DarcyProblem::DarcyProblem(const mfem::ParMesh& pmesh, const std::vector<int>& e
 Graph DarcyProblem::GetFVGraph(int coarsening_factor, bool use_local_weight,
                                SparseMatrix W_block)
 {
-    auto partitioning = PartitionAAT(vertex_edge_, coarsening_factor, 2., true, ess_vdofs_);
+    auto partitioning = PartitionAAT(vertex_edge_, weight_, coarsening_factor,
+                                     2., true, true, ess_vdofs_);
     if (use_local_weight)
     {
         std::cout << "use_local_weight is currently not supported! \n";

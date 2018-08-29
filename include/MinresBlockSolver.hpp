@@ -108,6 +108,8 @@ protected:
     ParMatrix DT_;
     ParMatrix W_;
 
+    SparseMatrix neg_D_left_;
+
     ParMatrix edge_true_edge_;
 
 private:
