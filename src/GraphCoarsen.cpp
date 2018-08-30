@@ -425,7 +425,6 @@ void GraphCoarsen::ComputeEdgeTargets(const MixedMatrix& mgl,
         SparseMatrix D_local = shared ? CombineD(face_D, num_face_edges) : std::move(face_D[0]);
         Vector constant_local = shared ? CombineConstant(face_constant) : std::move(face_constant[0]);
 
-
         GraphEdgeSolver solver(std::move(M_local), std::move(D_local));
         Vector one_neg_one = MakeOneNegOne(constant_local, split);
 

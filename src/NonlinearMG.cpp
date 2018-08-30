@@ -37,9 +37,6 @@ double NonlinearSolver::ResidualNorm(const VectorView& sol, const VectorView& rh
     residual_ -= rhs;
 
     Vector true_resid = AssembleTrueVector(residual_);
-//if (myid_ == 0){
-//    Vector residual_2(residual_.begin(), 10);
-//residual_2.Print();}
 
     return parlinalgcpp::ParL2Norm(comm_, true_resid);
 }

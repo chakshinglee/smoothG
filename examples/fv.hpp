@@ -1113,7 +1113,7 @@ LognormalProblem::LognormalProblem(int nDimensions, int num_ser_ref,
     SetupCoeff(nDimensions, correlation_length, more_ref);
     ComputeGraphWeight();
 
-    rhs_u_ = -1.0 * CellVolume();
+    rhs_u_ = -1.0 * CellVolume() / 2.5;
     for (int i = 0; i < num_ess_vdof_; ++i)
     {
         rhs_u_[rhs_u_.size()-1-i] = 0.0;

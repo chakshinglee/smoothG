@@ -296,7 +296,7 @@ void SingleLevelSolver::PicardStep(const BlockVector& rhs, BlockVector& x)
     Kappa(p_, kp_);
     up_.MakeSolver(level_, kp_);
 
-    if (level_ < up_.NumLevels() - 1)
+    if (level_ ==0)//< up_.NumLevels() - 1)
         up_.SetMaxIter(max_num_iter_ * 10);
     else
         up_.SetMaxIter(max_num_iter_ * 20);
@@ -392,7 +392,7 @@ void Kappa(const VectorView& p, std::vector<double>& kp)
     assert(kp.size() == p.size());
     for (int i = 0; i < p.size(); i++)
     {
-        kp[i] = std::exp(-.52 * (p[i]));
+        kp[i] = std::exp(8 * (p[i]));
         assert(kp[i] > 0.0);
     }
 }
