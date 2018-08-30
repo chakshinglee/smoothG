@@ -109,7 +109,7 @@ int main(int argc, char* argv[])
     double spect_tol = 1.0;
     bool hybridization = false;
     int num_levels = 2;
-    int coarsening_factor = 100;
+    double coarsening_factor = 10.0;
 
     int slice = 0;
     int num_sr = 3;
@@ -139,13 +139,13 @@ int main(int argc, char* argv[])
     ParPrint(myid, arg_parser.ShowOptions());
 
     std::vector<int> ess_v_attr(dim == 2 ? 4: 3, 1);
-//    ess_v_attr[2] = 0;
     LognormalProblem fv_problem(dim, num_sr, num_pr, correlation_length, ess_v_attr);
 //    SPE10Problem fv_problem("spe_perm.dat", dim, 5, slice, ess_v_attr, 15, 0);
     Graph graph = fv_problem.GetFVGraph(coarsening_factor*coarsening_factor, false);
 
     // Construct graph hierarchy
-    GraphUpscale upscale(graph, {spect_tol, max_evects, hybridization, num_levels,
+    GraphUpscale upscale(graph, fv_problem.GetLocalWeight(),
+                         {spect_tol, max_evects, hybridization, num_levels,
                          coarsening_factor, fv_problem.GetEssentialVertDofs()});
 
     upscale.PrintInfo();
@@ -154,34 +154,6 @@ int main(int argc, char* argv[])
     BlockVector rhs(upscale.GetBlockVector(0));
     rhs.GetBlock(0) = 0.0;
     rhs.GetBlock(1) = fv_problem.GetVertexRHS();
-
-
-//    auto& Pv = upscale.GetCoarsener(0).Pvertex();
-
-//    auto& Psigma_ = upscale.GetCoarsener(0).Pedge();
-//    Vector tmp(Psigma_.Rows());
-//    tmp.Randomize();
-
-//    Vector tmp_c(Psigma_.Cols());
-//    Psigma_.MultAT(tmp, tmp_c);
-
-//    Vector ttmp_c = upscale.GetMatrix(1).EdgeTrueEdge().MultAT(tmp_c);
-
-//    double norm = parlinalgcpp::ParL2Norm(comm, ttmp_c);
-
-//    if (myid == 0) std::cout<<"first method, norm = "<<norm<<"\n";
-
-//    Vector ttmp = upscale.GetMatrix(0).EdgeTrueEdge().MultAT(tmp);
-//    upscale.GetMatrix(0).EdgeTrueEdge().GetDiag().Mult(ttmp, tmp);
-
-//    Psigma_.MultAT(tmp, tmp_c);
-
-//    upscale.GetMatrix(1).EdgeTrueEdge().MultAT(tmp_c, ttmp_c);
-//    norm = parlinalgcpp::ParL2Norm(comm, ttmp_c);
-
-//    if (myid == 0) std::cout<<"second method, norm = "<<norm<<"\n";
-
-//return 0;
 
     Timer timer(Timer::Start::True);
 
@@ -226,8 +198,8 @@ int main(int argc, char* argv[])
     if (do_visualization)
     {
         mfem::socketstream sout;
-        mfem::Vector vis_help(sol_nlmg.GetBlock(1).begin(), rhs.GetBlock(1).size());
-        fv_problem.VisSetup(sout, vis_help, 0.0, 0.0, "");
+        mfem::Vector vis_help(sol_picard.GetBlock(1).begin(), rhs.GetBlock(1).size());
+        fv_problem.VisSetup(sout, vis_help, 0.0, 0.25, "");
     }
 
     return EXIT_SUCCESS;
@@ -324,9 +296,9 @@ void SingleLevelSolver::PicardStep(const BlockVector& rhs, BlockVector& x)
     Kappa(p_, kp_);
     up_.MakeSolver(level_, kp_);
 
-    if (level_ < up_.NumLevels() - 2)
-        up_.SetMaxIter(max_num_iter_ * 10);
-    else
+//    if (level_ < up_.NumLevels() - 1)
+//        up_.SetMaxIter(max_num_iter_ * 10);
+//    else
         up_.SetMaxIter(max_num_iter_ * 20);
 
     up_.SolveLevel(level_, rhs, x);
@@ -420,7 +392,7 @@ void Kappa(const VectorView& p, std::vector<double>& kp)
     assert(kp.size() == p.size());
     for (int i = 0; i < p.size(); i++)
     {
-        kp[i] = std::exp(-.52 * (p[i]));
+        kp[i] = std::exp(8. * (p[i]));
         assert(kp[i] > 0.0);
     }
 }

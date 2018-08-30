@@ -102,6 +102,87 @@ GraphUpscale::GraphUpscale(const Graph& graph, const UpscaleParams& params)
     setup_time_ += timer.TotalTime();
 }
 
+GraphUpscale::GraphUpscale(const Graph& graph,
+                           const std::vector<Vector>& local_weight,
+                           const UpscaleParams& params)
+    : Operator(graph.vertex_edge_local_.Rows()),
+      mgl_(params.max_levels),
+      coarsener_(params.max_levels - 1),
+      solver_(params.max_levels),
+      rhs_(params.max_levels),
+      sol_(params.max_levels),
+      constant_rep_(params.max_levels),
+      ess_vdofs_(params.max_levels),
+      comm_(graph.edge_true_edge_.GetComm()),
+      myid_(graph.edge_true_edge_.GetMyId()),
+      setup_time_(0),
+      hybridization_(params.hybridization),
+      proj_pw1_(params.max_levels)
+{
+    Timer timer(Timer::Start::True);
+
+    // Compute Topology
+    std::vector<GraphTopology> gts;
+    gts.emplace_back(graph);
+    ess_vdofs_[0] = params.ess_vdofs;
+
+    for (int level = 1; level < params.max_levels - 1; ++level)
+    {
+        CoarsenEssVdofs(level, gts.back().NumAggs());
+        gts.emplace_back(gts.back(), params.coarsen_factor, ess_vdofs_[level]);
+    }
+
+    // Fine Level
+    int level = 0;
+    {
+        mgl_[level] = MixedMatrix(graph, local_weight, ess_vdofs_[level].size());
+        mgl_[level].AssembleM();
+
+        proj_pw1_[level] = SparseIdentity(gts[level].NumVertices());
+
+        MakeSolver(level);
+        MakeVectors(level);
+    }
+
+    // Coarse Levels
+    for (level = 1; level < params.max_levels; ++level)
+    {
+        auto& gt_i = gts[level - 1];
+        auto& spect_pair_i = params.spectral_pair[level - 1];
+
+        double spect_tol_i = spect_pair_i.first;
+        int num_evects_i = level == 1 ? spect_pair_i.second : spect_pair_i.second;
+
+        int num_vert = gt_i.GlobalNumVertices();
+        int num_agg = gt_i.GlobalNumAggs();
+
+        ParPrint(myid_, printf("Coarsening: %d / %d = %.2f, evects: %d\n",
+                 num_vert, num_agg, num_vert / (double) num_agg, num_evects_i));
+
+        SparseMatrix Q_pw1 = gt_i.agg_vertex_local_;
+        SparseMatrix scale = Q_pw1.Mult(Q_pw1.Transpose());
+        assert(IsDiag(scale));
+        Q_pw1.InverseScaleRows(scale.GetDiag());
+
+        coarsener_[level - 1] = GraphCoarsen(std::move(gt_i), mgl_[level - 1],
+                                             num_evects_i, spect_tol_i);
+        mgl_[level] = MixedMatrix(coarsener_[level - 1].Coarsen(mgl_[level - 1]));
+        mgl_[level].AssembleM();
+
+        CoarsenEssVdofs(level, mgl_[level].LocalD().Rows());
+        auto tmp = proj_pw1_[level - 1].Mult(coarsener_[level - 1].Pvertex());
+        proj_pw1_[level] = Q_pw1.Mult(tmp);
+
+        MakeSolver(level);
+        MakeVectors(level);
+    }
+
+    do_ortho_ = !GetMatrix(0).CheckW() && params.ess_vdofs.size() == 0;
+
+    timer.Click();
+    setup_time_ += timer.TotalTime();
+}
+
 void GraphUpscale::MakeSolver(int level)
 {
     auto& mm = GetMatrix(level);

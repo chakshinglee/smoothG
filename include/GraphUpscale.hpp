@@ -102,6 +102,9 @@ public:
     */
     GraphUpscale(const Graph& graph, const UpscaleParams& params = {});
 
+    GraphUpscale(const Graph& graph, const std::vector<Vector>& local_weight,
+                 const UpscaleParams& params = {});
+
     /// Default Destructor
     ~GraphUpscale() = default;
 

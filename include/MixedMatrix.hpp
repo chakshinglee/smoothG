@@ -48,6 +48,9 @@ public:
     */
     MixedMatrix(const Graph& graph, int num_ess_vdof = 0);
 
+    MixedMatrix(const Graph& graph, const std::vector<Vector>& local_weight,
+                int num_ess_vdof = 0);
+
     /** @brief Constructor with given local matrices
         @param M_elem Local M element matrices
         @param elem_dof element to dof relationship
