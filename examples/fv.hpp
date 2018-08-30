@@ -476,6 +476,10 @@ public:
     {
         return rhs_u_;
     }
+    const std::vector<Vector>& GetLocalWeight() const
+    {
+        return local_weight_;
+    }
     double CellVolume() const
     {
         assert(pmesh_);
@@ -700,27 +704,36 @@ void DarcyProblem::ComputeGraphWeight()
     }
 
     // Store element mass matrices and local edge weights (TODO: map old to new)
+    assert(vertex_edge_.Rows() == pmesh_->GetNE() + num_ess_vdof_);
     local_weight_.resize(vertex_edge_.Rows());
     mfem::DenseMatrix M_el_i;
+
+    mfem::Array<int> local_mfem_dofs;
+
     for (int i = 0; i < pmesh_->GetNE(); i++)
     {
         a.ComputeElementMatrix(i, M_el_i);
         Vector& local_weight_i = local_weight_[i];
-        local_weight_i.SetSize(M_el_i.Height());
-        for (int j = 0; j < local_weight_i.size(); j++)
+
+        const std::vector<int> local_edges = vertex_edge_.GetIndices(i);
+        local_weight_i.SetSize(local_edges.size(), 0.0);
+
+        sigma_fes_->GetElementVDofs(i, local_mfem_dofs);
+        sigma_fes_->AdjustVDofs(local_mfem_dofs);
+
+        for (int j = 0; j < local_edges.size(); j++)
         {
-            local_weight_i[j] = 1.0 / M_el_i(j, j);
+            int edge = local_edges[j];
+            assert(edge__mfem_dof_.GetDiag().RowSize(edge) == 1); // no really needed
+            int mfem_dof = edge__mfem_dof_.GetDiag().GetIndices(edge)[0];
+            int local_mfem_dof = local_mfem_dofs.Find(mfem_dof);
+            assert(local_mfem_dof < M_el_i.Height() && local_mfem_dof > -1);
+            local_weight_i[j] = 1.0 / M_el_i(local_mfem_dof, local_mfem_dof);
         }
     }
-    for (int i = 0; i < pmesh_->GetNE(); i++)
+    for (int i = pmesh_->GetNE(); i < pmesh_->GetNE() + num_ess_vdof_; i++)
     {
-        a.ComputeElementMatrix(i, M_el_i);
-        Vector& local_weight_i = local_weight_[i];
-        local_weight_i.SetSize(M_el_i.Height());
-        for (int j = 0; j < local_weight_i.size(); j++)
-        {
-            local_weight_i[j] = 1.0 / M_el_i(j, j);
-        }
+        local_weight_[i].SetSize(vertex_edge_.RowSize(i), 1e10);
     }
 }
 
@@ -768,6 +781,7 @@ void DarcyProblem::VisSetup(mfem::socketstream& vis_v, mfem::Vector& vec, double
             vis_v << "keys i\n";  // see interior
         }
         vis_v << "keys [[[[\n";  // decrease size
+        vis_v << "keys XXXXXXXXXXXXXXXXXX\n"; // rotate cutting plan
 //        vis_v << "keys i\n";  // see interior
 //        vis_v << "keys ]]]]]\n";  // increase size
     }

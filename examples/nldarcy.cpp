@@ -139,13 +139,13 @@ int main(int argc, char* argv[])
     ParPrint(myid, arg_parser.ShowOptions());
 
     std::vector<int> ess_v_attr(dim == 2 ? 4: 3, 1);
-//    ess_v_attr[2] = 0;
     LognormalProblem fv_problem(dim, num_sr, num_pr, correlation_length, ess_v_attr);
 //    SPE10Problem fv_problem("spe_perm.dat", dim, 5, slice, ess_v_attr, 15, 0);
     Graph graph = fv_problem.GetFVGraph(coarsening_factor*coarsening_factor, false);
 
     // Construct graph hierarchy
-    GraphUpscale upscale(graph, {spect_tol, max_evects, hybridization, num_levels,
+    GraphUpscale upscale(graph, fv_problem.GetLocalWeight(),
+                         {spect_tol, max_evects, hybridization, num_levels,
                          coarsening_factor, fv_problem.GetEssentialVertDofs()});
 
     upscale.PrintInfo();
@@ -198,8 +198,8 @@ int main(int argc, char* argv[])
     if (do_visualization)
     {
         mfem::socketstream sout;
-        mfem::Vector vis_help(sol_nlmg.GetBlock(1).begin(), rhs.GetBlock(1).size());
-        fv_problem.VisSetup(sout, vis_help, 0.0, 0.0, "");
+        mfem::Vector vis_help(sol_picard.GetBlock(1).begin(), rhs.GetBlock(1).size());
+        fv_problem.VisSetup(sout, vis_help, 0.0, 0.25, "");
     }
 
     return EXIT_SUCCESS;
@@ -392,7 +392,7 @@ void Kappa(const VectorView& p, std::vector<double>& kp)
     assert(kp.size() == p.size());
     for (int i = 0; i < p.size(); i++)
     {
-        kp[i] = std::exp(8 * (p[i]));
+        kp[i] = std::exp(8. * (p[i]));
         assert(kp[i] > 0.0);
     }
 }

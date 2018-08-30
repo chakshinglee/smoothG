@@ -83,6 +83,40 @@ MixedMatrix::MixedMatrix(const Graph& graph, int num_ess_vdof)
     Init();
 }
 
+MixedMatrix::MixedMatrix(const Graph& graph,
+                         const std::vector<Vector>& local_weight,
+                         int num_ess_vdof)
+    : vertex_vdof(SparseIdentity(graph.vertex_edge_local_.Rows())),
+      vertex_edof(graph.vertex_edge_local_),
+      vertex_bdof(SparseMatrix(graph.vertex_edge_local_.Rows(), graph.vertex_edge_local_.Cols())),
+      edge_edof(SparseIdentity(graph.vertex_edge_local_.Cols())),
+      constant_vect_(graph.vertex_edge_local_.Rows(), 1.0),
+      num_ess_vdof_(num_ess_vdof),
+      edge_true_edge_(graph.edge_true_edge_),
+      D_local_(MakeLocalD(graph.edge_true_edge_, graph.vertex_edge_local_)),
+      W_local_(graph.W_local_),
+      elem_dof_(graph.vertex_edge_local_),
+      agg_vertexdof_(SparseIdentity(D_local_.Rows())),
+      face_facedof_(SparseIdentity(elem_dof_.Cols()))
+{
+    int num_vertices = D_local_.Rows();
+
+    M_elem_.resize(num_vertices);
+
+    for (int i = 0; i < num_vertices; ++i)
+    {
+        M_elem_[i].SetSize(elem_dof_.RowSize(i));
+        M_elem_[i] = 0.0;
+
+        for (int j = 0; j < elem_dof_.RowSize(i); ++j)
+        {
+            M_elem_[i](j, j) = 1./local_weight[i][j];
+        }
+    }
+
+    Init();
+}
+
 MixedMatrix::MixedMatrix(std::vector<DenseMatrix> M_elem, SparseMatrix elem_dof,
                          SparseMatrix D_local, SparseMatrix W_local,
                          ParMatrix edge_true_edge, SparseMatrix agg_vertexdof,
