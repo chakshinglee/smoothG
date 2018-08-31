@@ -150,7 +150,7 @@ int main(int argc, char* argv[])
     /// [Right Hand Side]
     BlockVector fine_rhs = upscale.GetBlockVector(0);
 
-    fine_rhs.GetBlock(0) = 0.0;
+    fine_rhs.GetBlock(0) = 1.0;
     fine_rhs.GetBlock(1) = ReadVertexVector(graph, fiedler_filename);
     /// [Right Hand Side]
 

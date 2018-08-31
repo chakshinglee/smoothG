@@ -155,7 +155,12 @@ int main(int argc, char* argv[])
 
     /// [Right Hand Side]
     BlockVector fine_rhs = upscale.GetBlockVector(0);
-    fine_rhs.GetBlock(0) = 0.0;
+//    fine_rhs.GetBlock(0) = 1.0;
+    const SparseMatrix& offd = graph.edge_edge_.GetOffd();
+    for (unsigned int i = 0; i < offd.Rows(); ++i)
+    {
+        fine_rhs.GetBlock(0)[i] = offd.RowSize(i) ? .5 : 1.;
+    }
 
     if (generate_graph || generate_fiedler)
     {
@@ -172,6 +177,27 @@ int main(int argc, char* argv[])
 
     upscale.ShowFineSolveInfo();
     upscale.ShowCoarseSolveInfo();
+
+    GraphUpscale upscale2(graph, {spect_tol, max_evects, !hybridization, num_levels});
+    auto sols2 = upscale2.MultMultiLevel(fine_rhs);
+    // Compare Coarse Levels
+    for (int level = 0; level < num_levels; ++level)
+    {
+        ParPrint(myid, std::cout << "Level " << level << " errors: \n");
+        BlockVector test = sols2[level];
+        double norm0 = test.GetBlock(0).L2Norm();
+        double norm1 = test.GetBlock(1).L2Norm();
+
+        test -= sols[level];
+test.GetBlock(0) /= norm0;
+test.GetBlock(1) /= norm1;
+//test.GetBlock(1).Print();
+
+        std::cout<<"AbsMax diff0 = "<<linalgcpp::AbsMax(test.GetBlock(0))<<"\n";
+        std::cout<<"AbsMax diff1 = "<<linalgcpp::AbsMax(test.GetBlock(1))<<"\n";
+
+        upscale.ShowErrors(sols[level], sols2[level]);
+    }
 
     // Compare Coarse Levels
     for (int level = 1; level < num_levels; ++level)
