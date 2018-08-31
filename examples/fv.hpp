@@ -571,7 +571,7 @@ Graph DarcyProblem::GetFVGraph(int coarsening_factor, bool use_local_weight,
         vertex_edge_ = SparseMatrix();
         edge_trueedge_ = ParMatrix();
         std::vector<double>().swap(weight_);
-        std::vector<Vector>().swap(local_weight_);
+//        std::vector<Vector>().swap(local_weight_);
         return out;
     }
 }

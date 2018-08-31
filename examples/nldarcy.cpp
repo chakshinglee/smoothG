@@ -147,6 +147,7 @@ int main(int argc, char* argv[])
     GraphUpscale upscale(graph, fv_problem.GetLocalWeight(),
                          {spect_tol, max_evects, hybridization, num_levels,
                          coarsening_factor, fv_problem.GetEssentialVertDofs()});
+    graph = Graph();
 
     upscale.PrintInfo();
     upscale.ShowSetupTime();

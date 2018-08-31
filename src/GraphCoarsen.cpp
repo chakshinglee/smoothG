@@ -238,6 +238,10 @@ void GraphCoarsen::ComputeVertexTargets(const ParMatrix& M_ext_global,
                 vertex_dofs_ext, vertex_dofs_local);
 
         VectorView first_vect = evects_restricted.GetColView(0);
+        if (first_vect[0] < 0.0)
+        {
+            first_vect *= -1.0;
+        }
         vertex_targets_[agg] = Orthogonalize(evects_restricted, first_vect, 1, max_evects_);
     }
 }

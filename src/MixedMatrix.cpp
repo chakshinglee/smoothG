@@ -105,8 +105,7 @@ MixedMatrix::MixedMatrix(const Graph& graph,
 
     for (int i = 0; i < num_vertices; ++i)
     {
-        M_elem_[i].SetSize(elem_dof_.RowSize(i));
-        M_elem_[i] = 0.0;
+        M_elem_[i].SetSize(elem_dof_.RowSize(i), 0.0);
 
         for (int j = 0; j < elem_dof_.RowSize(i); ++j)
         {
