@@ -226,13 +226,13 @@ void GraphCoarsen::ComputeVertexTargets(const ParMatrix& M_ext_global,
 
         eigs.BlockCompute(M_sub, D_sub, evects);
 
-//        if (evects.Cols() > 1)
-//        {
-//            SparseSolver M_inv(std::move(M_sub));
+        if (evects.Cols() > 1)
+        {
+            SparseSolver M_inv(std::move(M_sub));
 
-//            OffsetMultAT(D_sub, evects, DT_evect, 1);
-//            OffsetMult(M_inv, DT_evect, agg_ext_sigma_[agg], 0);
-//        }
+            OffsetMultAT(D_sub, evects, DT_evect, 1);
+            OffsetMult(M_inv, DT_evect, agg_ext_sigma_[agg], 0);
+        }
 
         DenseMatrix evects_restricted = RestrictLocal(evects, col_marker_,
                 vertex_dofs_ext, vertex_dofs_local);

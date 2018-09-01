@@ -143,6 +143,8 @@ private:
 
     ParMatrix ComputeScaledSystem(const ParMatrix& hybrid_d);
 
+    void MakeSharedEdgeDofMarker();
+
     SparseMatrix agg_vertexdof_;
     SparseMatrix agg_edgedof_;
     SparseMatrix agg_multiplier_;
@@ -150,6 +152,8 @@ private:
     int num_aggs_;
     int num_edge_dofs_;
     int num_multiplier_dofs_;
+
+    std::vector<bool> is_edgedof_shared_; // shared locally by two "aggs"
 
     ParMatrix multiplier_d_td_;
 
@@ -162,9 +166,11 @@ private:
     std::vector<DenseMatrix> MinvCT_;
     std::vector<DenseMatrix> AinvDMinvCT_;
     std::vector<DenseMatrix> Ainv_;
+    std::vector<DenseMatrix> Minv_;
     std::vector<DenseMatrix> hybrid_elem_;
 
-    mutable std::vector<Vector> Ainv_f_;
+    mutable std::vector<Vector> tmp_local_rhs_;
+    mutable std::vector<Vector> Minv_g_;
 
     std::vector<double> agg_weights_;
 

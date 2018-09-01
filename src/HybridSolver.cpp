@@ -33,9 +33,9 @@ HybridSolver::HybridSolver(const MixedMatrix& mgl)
     num_edge_dofs_(agg_edgedof_.Cols()),
     num_multiplier_dofs_(mgl.GetFaceFaceDof().Cols()),
     MinvDT_(num_aggs_), MinvCT_(num_aggs_),
-    AinvDMinvCT_(num_aggs_), Ainv_(num_aggs_),
-    hybrid_elem_(num_aggs_), Ainv_f_(num_aggs_),
-    agg_weights_(num_aggs_, 1.0),
+    AinvDMinvCT_(num_aggs_), Ainv_(num_aggs_), Minv_(num_aggs_),
+    hybrid_elem_(num_aggs_), tmp_local_rhs_(num_aggs_),
+    Minv_g_(num_aggs_), agg_weights_(num_aggs_, 1.0),
     rescale_iter_(0)
 {
     SparseMatrix edgedof_multiplier = MakeEdgeDofMultiplier();
@@ -49,11 +49,27 @@ HybridSolver::HybridSolver(const MixedMatrix& mgl)
     ParMatrix edgedof_multiplier_d(comm_, std::move(edgedof_multiplier));
     ParMatrix multiplier_d_td_d = parlinalgcpp::RAP(edge_edge, edgedof_multiplier_d);
 
+//    assert(multiplier_d_td_d.GetOffd().RowSize(0)==0); // the right way is to eliminate on true system
     multiplier_d_td_ = MakeEntityTrueEntity(multiplier_d_td_d);
+
+    MakeSharedEdgeDofMarker();
 
     SparseMatrix local_hybrid = AssembleHybridSystem(mgl, j_multiplier_edgedof);
 
     InitSolver(std::move(local_hybrid));
+}
+
+void HybridSolver::MakeSharedEdgeDofMarker()
+{
+    is_edgedof_shared_.resize(agg_edgedof_.Cols());
+
+    SparseMatrix edgedof_agg = agg_edgedof_.Transpose();
+    for (unsigned int i = 0; i < is_edgedof_shared_.size(); ++i)
+    {
+        int num_associated_aggs = edgedof_agg.RowSize(i);
+        assert(num_associated_aggs == 2 || num_associated_aggs == 1);
+        is_edgedof_shared_[i] = num_associated_aggs == 2 ? true : false;
+    }
 }
 
 ParMatrix HybridSolver::ComputeScaledSystem(const ParMatrix& hybrid_d)
@@ -80,10 +96,10 @@ ParMatrix HybridSolver::ComputeScaledSystem(const ParMatrix& hybrid_d)
 
 void HybridSolver::InitSolver(SparseMatrix local_hybrid)
 {
-    if (myid_ == 0 && !use_w_)
-    {
-        local_hybrid.EliminateRowCol(0);
-    }
+//    if (myid_ == 0 && !use_w_)
+//    {
+//        local_hybrid.EliminateRowCol(0);
+//    }
 
     ParMatrix hybrid_d = ParMatrix(comm_, std::move(local_hybrid));
 
@@ -205,8 +221,6 @@ SparseMatrix HybridSolver::AssembleHybridSystem(
     std::vector<int> edge_map(map_size, -1);
     std::vector<bool> edge_marker(num_edge_dofs_, true);
 
-    DenseMatrix Minv;
-
     DenseMatrix Aloc;
     DenseMatrix Wloc;
     DenseMatrix CMDADMC;
@@ -239,24 +253,25 @@ SparseMatrix HybridSolver::AssembleHybridSystem(
         //      CMinvDTAinvDMinvCT = CMinvDT * AinvDMinvCT_
         //      hybrid_elem = CMinvCT - CMinvDTAinvDMinvCT
 
-        M_el[agg].Invert(Minv);
-
         DenseMatrix& MinvCT_i(MinvCT_[agg]);
         DenseMatrix& MinvDT_i(MinvDT_[agg]);
         DenseMatrix& AinvDMinvCT_i(AinvDMinvCT_[agg]);
         DenseMatrix& Ainv_i(Ainv_[agg]);
+        DenseMatrix& Minv_i(Minv_[agg]);
         DenseMatrix& hybrid_elem(hybrid_elem_[agg]);
+
+        M_el[agg].Invert(Minv_i);
 
         AinvDMinvCT_i.SetSize(nlocal_vertexdof, nlocal_multiplier);
         hybrid_elem.SetSize(nlocal_multiplier, nlocal_multiplier);
         Aloc.SetSize(nlocal_vertexdof, nlocal_vertexdof);
         DMinvCT.SetSize(nlocal_vertexdof, nlocal_multiplier);
 
-        MinvDT_i.SetSize(Minv.Cols(), Dloc.Rows());
-        MinvCT_i.SetSize(Minv.Cols(), Cloc.Rows());
+        MinvDT_i.SetSize(Minv_i.Cols(), Dloc.Rows());
+        MinvCT_i.SetSize(Minv_i.Cols(), Cloc.Rows());
 
-        Dloc.MultCT(Minv, MinvDT_i);
-        Cloc.MultCT(Minv, MinvCT_i);
+        Dloc.MultCT(Minv_i, MinvDT_i);
+        Cloc.MultCT(Minv_i, MinvCT_i);
 
         Cloc.Mult(MinvCT_i, hybrid_elem);
         Dloc.Mult(MinvCT_i, DMinvCT);
@@ -294,10 +309,10 @@ void HybridSolver::Solve(const BlockVector& Rhs, BlockVector& Sol) const
 {
     RHSTransform(Rhs, Hrhs_);
 
-    if (!use_w_ && myid_ == 0)
-    {
-        Hrhs_[0] = 0.0;
-    }
+//    if (!use_w_ && myid_ == 0)
+//    {
+//        Hrhs_[0] = 0.0;
+//    }
 
     // assemble true right hand side
     multiplier_d_td_.MultAT(Hrhs_, trueHrhs_);
@@ -355,33 +370,60 @@ void HybridSolver::RHSTransform(const BlockVector& OriginalRHS,
     HybridRHS = 0.;
 
     Vector f_loc;
-    Vector CMinvDTAinv_f_loc;
+    Vector g_loc;
+    Vector rhs_loc_help;
+    Vector DMinv_g_loc;
+    Vector CMinv_g_loc;
 
     for (int iAgg = 0; iAgg < num_aggs_; ++iAgg)
     {
         // Extracting the size and global numbering of local dof
         std::vector<int> local_vertexdof = agg_vertexdof_.GetIndices(iAgg);
+        std::vector<int> local_edgedof = agg_edgedof_.GetIndices(iAgg);
         std::vector<int> local_multiplier = agg_multiplier_.GetIndices(iAgg);
 
         int nlocal_vertexdof = local_vertexdof.size();
+        int nlocal_edgedof = local_edgedof.size();
         int nlocal_multiplier = local_multiplier.size();
 
-        // Compute local contribution to the RHS of the hybrid system
         OriginalRHS.GetBlock(1).GetSubVector(local_vertexdof, f_loc);
-        f_loc *= -1.0;
+        OriginalRHS.GetBlock(0).GetSubVector(local_edgedof, g_loc);
+        for (int i = 0; i < nlocal_edgedof; ++i)
+        {
+            if (is_edgedof_shared_[local_edgedof[i]])
+            {
+                g_loc[i] /= 2.0;
+            }
+        }
 
-        CMinvDTAinv_f_loc.SetSize(nlocal_multiplier);
-        AinvDMinvCT_[iAgg].MultAT(f_loc, CMinvDTAinv_f_loc);
+        // Compute local contribution to the RHS of the hybrid system
+        // CM^{-1} g - CM^{-1}D^T A^{-1} (DM^{-1} g - f)
+        DMinv_g_loc.SetSize(nlocal_vertexdof);
+        MinvDT_[iAgg].MultAT(g_loc, DMinv_g_loc);
+
+        DMinv_g_loc *= agg_weights_[iAgg];
+        DMinv_g_loc -= f_loc;
+
+        rhs_loc_help.SetSize(nlocal_multiplier);
+        AinvDMinvCT_[iAgg].MultAT(DMinv_g_loc, rhs_loc_help);
+
+        CMinv_g_loc.SetSize(nlocal_multiplier);
+        MinvCT_[iAgg].MultAT(g_loc, CMinv_g_loc);
+        CMinv_g_loc *= agg_weights_[iAgg];
+        CMinv_g_loc -= rhs_loc_help;
 
         for (int i = 0; i < nlocal_multiplier; ++i)
         {
-            HybridRHS[local_multiplier[i]] -= CMinvDTAinv_f_loc[i];
+            HybridRHS[local_multiplier[i]] += CMinv_g_loc[i];
         }
 
-        // Save the element rhs [M B^T;B 0]^-1[f;g] for solution recovery
-        Ainv_f_[iAgg].SetSize(nlocal_vertexdof);
-        Ainv_[iAgg].Mult(f_loc, Ainv_f_[iAgg]);
-        Ainv_f_[iAgg] /= agg_weights_[iAgg];
+        // Save M^{-1}g, A^{-1} (DM^{-1} g - f) for solution recovery
+        Minv_g_[iAgg].SetSize(nlocal_edgedof);
+        Minv_[iAgg].Mult(g_loc, Minv_g_[iAgg]);
+
+        tmp_local_rhs_[iAgg].SetSize(nlocal_vertexdof);
+        Ainv_[iAgg].Mult(DMinv_g_loc, tmp_local_rhs_[iAgg]);
+        tmp_local_rhs_[iAgg] /= agg_weights_[iAgg];
     }
 }
 
@@ -389,13 +431,12 @@ void HybridSolver::RecoverOriginalSolution(const VectorView& HybridSol,
                                            BlockVector& RecoveredSol) const
 {
     // Recover the solution of the original system from multiplier mu, i.e.,
-    // [u;p] = [f;g] - [M B^T;B 0]^-1[C 0]^T * mu
+    // [u;p] = [f;g] - [M B^T;B -W]^-1[C 0]^T * mu
     // This procedure is done locally in each element
 
     RecoveredSol = 0.;
 
     Vector mu_loc;
-    Vector sigma_loc;
     Vector tmp;
 
     for (int iAgg = 0; iAgg < num_aggs_; ++iAgg)
@@ -411,7 +452,8 @@ void HybridSolver::RecoverOriginalSolution(const VectorView& HybridSol,
 
         // Initialize a vector which will store the local contribution of Hdiv
         // and L2 space
-        Vector& u_loc(Ainv_f_[iAgg]);
+        Vector& u_loc(tmp_local_rhs_[iAgg]);
+        Vector& sigma_loc(Minv_g_[iAgg]);
 
         // This check is just for the case when there is only one element for
         // the global problem, then there will be no Lagrange multipliers
@@ -420,26 +462,25 @@ void HybridSolver::RecoverOriginalSolution(const VectorView& HybridSol,
             // Extract the local portion of the Lagrange multiplier solution
             HybridSol.GetSubVector(local_multiplier, mu_loc);
 
-            // Compute u = (DMinvDT)^-1(f-DMinvC^T mu)
-            //AinvDMinvCT_[iAgg].AddMult_a(-1., mu_loc, u_loc);
+            // Compute u = A^{-1} (DM^{-1} (g - C^T mu) - f)
             tmp.SetSize(u_loc.size());
             AinvDMinvCT_[iAgg].Mult(mu_loc, tmp);
             u_loc -= tmp;
 
-            // Compute -sigma = Minv(DT u + DT mu)
-            sigma_loc.SetSize(nlocal_edgedof);
-            MinvDT_[iAgg].Mult(u_loc, sigma_loc);
-            //MinvCT_[iAgg].AddMult(mu_loc, sigma_loc);
-            tmp.SetSize(sigma_loc.size());
+            // Compute sigma = Minv(g - D^T u - C^T mu)
+            tmp.SetSize(nlocal_edgedof);
+            MinvDT_[iAgg].Mult(u_loc, tmp);
+            sigma_loc -= tmp;
+            tmp.SetSize(nlocal_edgedof);
             MinvCT_[iAgg].Mult(mu_loc, tmp);
-            sigma_loc += tmp;
+            sigma_loc -= tmp;
             sigma_loc *= agg_weights_[iAgg];
         }
 
         // Save local solution to the global solution vector
         for (int i = 0; i < nlocal_edgedof; ++i)
         {
-            RecoveredSol[local_edgedof[i]] = -sigma_loc[i];
+            RecoveredSol[local_edgedof[i]] = sigma_loc[i];
         }
 
         for (int i = 0; i < nlocal_vertexdof; ++i)

@@ -117,14 +117,9 @@ void NonlinearMG::FAS_Cycle(int level)
         hierarchy_.Mult(level, sol_[level], help_[level]);
         help_[level] -= rhs_[level];
 
-        // TODO: consider to work with true dofs directly
-//        Vector true_help = hierarchy_.AssembleTrueVector(level, help_[level]);
-//        help_[level] = hierarchy_.RestrictTrueVector(level, true_help);
         hierarchy_.Restrict(level, help_[level], help_[level + 1]);
 
         hierarchy_.Project(level, sol_[level], sol_[level + 1]);
-//        Vector true_help = hierarchy_.SelectTrueVector(level+1, sol_[level+1]);
-//        sol_[level+1] = hierarchy_.DistributeTrueVector(level+1, true_help);
 
         hierarchy_.Mult(level + 1, sol_[level + 1], rhs_[level + 1]);
         rhs_[level + 1] -= help_[level + 1];

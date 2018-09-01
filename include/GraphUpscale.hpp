@@ -220,6 +220,9 @@ public:
     /// Show Total Solve time on the fine level on processor 0
     void ShowFineSolveInfo(std::ostream& out = std::cout) const;
 
+    /// Show Total Solve time on level on processor 0
+    void ShowSolveInfo(int level, std::ostream& out = std::cout) const;
+
     /// Show Total setup time on processor 0
     void ShowSetupTime(std::ostream& out = std::cout) const;
 

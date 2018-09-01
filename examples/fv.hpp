@@ -560,7 +560,7 @@ Graph DarcyProblem::GetFVGraph(int coarsening_factor, bool use_local_weight,
                                SparseMatrix W_block)
 {
     auto partitioning = PartitionAAT(vertex_edge_, weight_, coarsening_factor,
-                                     2., true, true, ess_vdofs_);
+                                     2.0, true, true, ess_vdofs_);
     if (use_local_weight)
     {
         std::cout << "use_local_weight is currently not supported! \n";
@@ -1127,7 +1127,8 @@ LognormalProblem::LognormalProblem(int nDimensions, int num_ser_ref,
     SetupCoeff(nDimensions, correlation_length, more_ref);
     ComputeGraphWeight();
 
-    rhs_u_ = -1.0 * CellVolume() / 2.5;
+    rhs_u_ = -1.0 * CellVolume();
+
     for (int i = 0; i < num_ess_vdof_; ++i)
     {
         rhs_u_[rhs_u_.size()-1-i] = 0.0;

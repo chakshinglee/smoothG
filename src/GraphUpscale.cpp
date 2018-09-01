@@ -153,6 +153,7 @@ GraphUpscale::GraphUpscale(const Graph& graph,
 
         double spect_tol_i = spect_pair_i.first;
         int num_evects_i = level == 1 ? spect_pair_i.second : spect_pair_i.second;
+//        num_evects_i = std::max(num_evects_i - (level -1), 1);
 
         int num_vert = gt_i.GlobalNumVertices();
         int num_agg = gt_i.GlobalNumAggs();
@@ -188,11 +189,12 @@ void GraphUpscale::MakeSolver(int level)
 {
     auto& mm = GetMatrix(level);
 
-    if (level == 0)
-    {
-        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
-    }
-    else if (hybridization_)
+//    if (level == 0)
+//    {
+//        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
+//    }
+//    else
+        if (hybridization_)
     {
         solver_[level] = make_unique<HybridSolver>(mm);
     }
@@ -206,12 +208,13 @@ void GraphUpscale::MakeSolver(int level, const std::vector<double>& agg_weights)
 {
     auto& mm = GetMatrix(level);
 
-    if (level == 0)
-    {
-        mm.AssembleM(agg_weights);
-        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
-    }
-    else if (hybridization_)
+//    if (level == 0)
+//    {
+//        mm.AssembleM(agg_weights);
+//        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
+//    }
+//    else
+        if (hybridization_)
     {
         if (!solver_[level])
         {
@@ -818,6 +821,18 @@ void GraphUpscale::ShowFineSolveInfo(std::ostream& out) const
         out << "\n";
         out << "Fine Solve Time:         " << solver_[0]->GetTiming() << "\n";
         out << "Fine Solve Iterations:   " << solver_[0]->GetNumIterations() << "\n";
+    }
+}
+
+void GraphUpscale::ShowSolveInfo(int level, std::ostream& out) const
+{
+    assert(solver_[level]);
+
+    if (myid_ == 0)
+    {
+        out << "\n";
+        out << "Level " << level << " Solve Time:       " << solver_[level]->GetTiming() << "\n";
+        out << "Level " << level << " Solve Iterations: " << solver_[level]->GetNumIterations() << "\n";
     }
 }
 

@@ -163,7 +163,7 @@ int main(int argc, char* argv[])
 
     SingleLevelSolver sls(upscale, 0, Picard);
     sls.SetPrintLevel(1);
-    sls.Solve(rhs, sol_picard);
+//    sls.Solve(rhs, sol_picard);
 
     timer.Click();
 
@@ -200,7 +200,7 @@ int main(int argc, char* argv[])
     {
         mfem::socketstream sout;
         mfem::Vector vis_help(sol_picard.GetBlock(1).begin(), rhs.GetBlock(1).size());
-        fv_problem.VisSetup(sout, vis_help, 0.0, 0.25, "");
+        fv_problem.VisSetup(sout, vis_help, 0.0, 0.0, "");
     }
 
     return EXIT_SUCCESS;
@@ -293,7 +293,7 @@ void SingleLevelSolver::PicardSolve(const BlockVector& rhs, BlockVector& x)
 void SingleLevelSolver::PicardStep(const BlockVector& rhs, BlockVector& x)
 {
     up_.Project_PW_One(level_, x.GetBlock(1), p_);
-
+//if (level_>0 && myid_ ==0) {Vector p2(p_.begin(), 5); p2.Print();}
     Kappa(p_, kp_);
     up_.MakeSolver(level_, kp_);
 
@@ -303,6 +303,7 @@ void SingleLevelSolver::PicardStep(const BlockVector& rhs, BlockVector& x)
         up_.SetMaxIter(max_num_iter_ * 20);
 
     up_.SolveLevel(level_, rhs, x);
+    up_.ShowSolveInfo(level_);
 }
 
 void SingleLevelSolver::NewtonSolve(const BlockVector& rhs, BlockVector& x)
@@ -393,7 +394,7 @@ void Kappa(const VectorView& p, std::vector<double>& kp)
     assert(kp.size() == p.size());
     for (int i = 0; i < p.size(); i++)
     {
-        kp[i] = std::exp(8. * (p[i]));
+        kp[i] = std::exp(3. * (p[i]));
         assert(kp[i] > 0.0);
     }
 }
