@@ -49,7 +49,13 @@ HybridSolver::HybridSolver(const MixedMatrix& mgl)
     ParMatrix edgedof_multiplier_d(comm_, std::move(edgedof_multiplier));
     ParMatrix multiplier_d_td_d = parlinalgcpp::RAP(edge_edge, edgedof_multiplier_d);
 
-//    assert(multiplier_d_td_d.GetOffd().RowSize(0)==0); // the right way is to eliminate on true system
+    if(myid_ == 0 && !use_w_)
+    {
+        int ess_dof = FindFirstNotShared(multiplier_d_td_d.GetOffd());
+        assert(ess_dof != -1);
+        ess_vdofs_.push_back(ess_dof);
+    }
+
     multiplier_d_td_ = MakeEntityTrueEntity(multiplier_d_td_d);
 
     MakeSharedEdgeDofMarker();
@@ -96,10 +102,10 @@ ParMatrix HybridSolver::ComputeScaledSystem(const ParMatrix& hybrid_d)
 
 void HybridSolver::InitSolver(SparseMatrix local_hybrid)
 {
-//    if (myid_ == 0 && !use_w_)
-//    {
-//        local_hybrid.EliminateRowCol(0);
-//    }
+    for (auto& dof : ess_vdofs_)
+    {
+        local_hybrid.EliminateRowCol(dof);
+    }
 
     ParMatrix hybrid_d = ParMatrix(comm_, std::move(local_hybrid));
 
@@ -309,10 +315,10 @@ void HybridSolver::Solve(const BlockVector& Rhs, BlockVector& Sol) const
 {
     RHSTransform(Rhs, Hrhs_);
 
-//    if (!use_w_ && myid_ == 0)
-//    {
-//        Hrhs_[0] = 0.0;
-//    }
+    for (auto& dof : ess_vdofs_)
+    {
+        Hrhs_[dof] = 0.0;
+    }
 
     // assemble true right hand side
     multiplier_d_td_.MultAT(Hrhs_, trueHrhs_);
@@ -450,8 +456,7 @@ void HybridSolver::RecoverOriginalSolution(const VectorView& HybridSol,
         int nlocal_edgedof = local_edgedof.size();
         int nlocal_multiplier = local_multiplier.size();
 
-        // Initialize a vector which will store the local contribution of Hdiv
-        // and L2 space
+        // Local solution
         Vector& u_loc(tmp_local_rhs_[iAgg]);
         Vector& sigma_loc(Minv_g_[iAgg]);
 
@@ -467,7 +472,7 @@ void HybridSolver::RecoverOriginalSolution(const VectorView& HybridSol,
             AinvDMinvCT_[iAgg].Mult(mu_loc, tmp);
             u_loc -= tmp;
 
-            // Compute sigma = Minv(g - D^T u - C^T mu)
+            // Compute sigma = M^{-1} (g - D^T u - C^T mu)
             tmp.SetSize(nlocal_edgedof);
             MinvDT_[iAgg].Mult(u_loc, tmp);
             sigma_loc -= tmp;

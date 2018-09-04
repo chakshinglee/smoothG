@@ -120,6 +120,13 @@ public:
     /// Create Weighted Solver
     void MakeSolver(int level, const std::vector<double>& agg_weights);
 
+    /// Create Weighted Solver
+    void MakeSolver(int level, bool hybridization);
+
+    /// Create Weighted Solver
+    void MakeSolver(int level, const std::vector<double>& agg_weights,
+                    bool hybridization);
+
     /// Wrapper for applying the upscaling, in linalgcpp terminology
     void Mult(const VectorView& x, VectorView y) const override;
 

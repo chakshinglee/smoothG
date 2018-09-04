@@ -230,6 +230,37 @@ void GraphUpscale::MakeSolver(int level, const std::vector<double>& agg_weights)
     }
 }
 
+void GraphUpscale::MakeSolver(int level, bool hybridization)
+{
+    auto& mm = GetMatrix(level);
+
+    if (hybridization)
+    {
+        solver_[level] = make_unique<HybridSolver>(mm);
+    }
+    else
+    {
+        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
+    }
+}
+
+void GraphUpscale::MakeSolver(int level, const std::vector<double>& agg_weights, bool hybridization)
+{
+    auto& mm = GetMatrix(level);
+
+    if (hybridization)
+    {
+        solver_[level] = make_unique<HybridSolver>(mm);
+        auto& hb = dynamic_cast<HybridSolver&>(*solver_[level]);
+        hb.UpdateAggScaling(agg_weights);
+    }
+    else
+    {
+        mm.AssembleM(agg_weights);
+        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
+    }
+}
+
 std::vector<BlockVector> GraphUpscale::MultMultiLevel(const BlockVector& x) const
 {
     std::vector<BlockVector> sols;
