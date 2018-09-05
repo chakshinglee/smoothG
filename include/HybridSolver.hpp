@@ -82,7 +82,7 @@ public:
 
        @param mgL Mixed matrices for the graph Laplacian
     */
-    HybridSolver(const MixedMatrix& mgL);
+    HybridSolver(const MixedMatrix& mgL, const std::vector<int>& ess_vdofs = {});
 
     virtual ~HybridSolver() = default;
 
@@ -181,6 +181,7 @@ private:
     mutable std::vector<double> diag_scaling_;
 
     int rescale_iter_;
+    int ess_mul_dof_;
 };
 
 

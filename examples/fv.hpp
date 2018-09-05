@@ -677,7 +677,7 @@ void DarcyProblem::ComputeGraphWeight()
     a.SpMat().GetDiag(a_diag);
 
     VectorView a_diag_view(a_diag.GetData(), a_diag.Size());
-    Vector weight_inv = edge__mfem_dof_.GetDiag().Mult(a_diag_view); //TODO: no diag
+    Vector weight_inv = edge__mfem_dof_.Mult(a_diag_view); //TODO: no diag
 
     weight_.resize(weight_inv.size());
     SparseMatrix e_v = vertex_edge_.Transpose();
@@ -719,7 +719,7 @@ void DarcyProblem::ComputeGraphWeight()
         for (int j = 0; j < local_edges.size(); j++)
         {
             int edge = local_edges[j];
-            assert(edge__mfem_dof_.GetDiag().RowSize(edge) == 1); // no really needed
+            assert(edge__mfem_dof_.GetDiag().RowSize(edge) == 1); // not really needed
             int mfem_dof = edge__mfem_dof_.GetDiag().GetIndices(edge)[0];
             int local_mfem_dof = local_mfem_dofs.Find(mfem_dof);
             assert(local_mfem_dof < M_el_i.Height() && local_mfem_dof > -1);
@@ -728,7 +728,13 @@ void DarcyProblem::ComputeGraphWeight()
     }
     for (int i = pmesh_->GetNE(); i < pmesh_->GetNE() + num_ess_vdof_; i++)
     {
-        local_weight_[i].SetSize(vertex_edge_.RowSize(i), 1e10);
+//        local_weight_[i].SetSize(vertex_edge_.RowSize(i), 1e10);
+        std::vector<int> edges = vertex_edge_.GetIndices(i);
+        local_weight_[i].SetSize(edges.size());
+        for (int j = 0; j < edges.size(); ++j)
+        {
+            local_weight_[i][j] = 1.0 / weight_inv[edges[j]];
+        }
     }
 }
 

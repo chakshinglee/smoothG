@@ -195,7 +195,7 @@ void GraphUpscale::MakeSolver(int level)
 //    else
         if (hybridization_)
     {
-        solver_[level] = make_unique<HybridSolver>(mm);
+        solver_[level] = make_unique<HybridSolver>(mm, ess_vdofs_[level]);
     }
     else
     {
@@ -217,7 +217,7 @@ void GraphUpscale::MakeSolver(int level, const std::vector<double>& agg_weights)
     {
         if (!solver_[level])
         {
-            solver_[level] = make_unique<HybridSolver>(mm);
+            solver_[level] = make_unique<HybridSolver>(mm, ess_vdofs_[level]);
         }
 
         auto& hb = dynamic_cast<HybridSolver&>(*solver_[level]);
@@ -236,7 +236,7 @@ void GraphUpscale::MakeSolver(int level, bool hybridization)
 
     if (hybridization)
     {
-        solver_[level] = make_unique<HybridSolver>(mm);
+        solver_[level] = make_unique<HybridSolver>(mm, ess_vdofs_[level]);
     }
     else
     {
@@ -250,7 +250,7 @@ void GraphUpscale::MakeSolver(int level, const std::vector<double>& agg_weights,
 
     if (hybridization)
     {
-        solver_[level] = make_unique<HybridSolver>(mm);
+        solver_[level] = make_unique<HybridSolver>(mm, ess_vdofs_[level]);
         auto& hb = dynamic_cast<HybridSolver&>(*solver_[level]);
         hb.UpdateAggScaling(agg_weights);
     }

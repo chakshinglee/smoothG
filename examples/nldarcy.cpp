@@ -164,6 +164,9 @@ int main(int argc, char* argv[])
     sls.SetPrintLevel(1);
 //    sls.Solve(rhs, sol_picard);
 
+    upscale.Solve(rhs, sol_picard);
+
+return 0;
     timer.Click();
 
     if (myid == 0)
