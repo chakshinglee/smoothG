@@ -24,9 +24,9 @@
 namespace smoothg
 {
 
-HybridSolver::HybridSolver(const MixedMatrix& mgl)
+HybridSolver::HybridSolver(const MixedMatrix& mgl, const std::vector<int>& ess_vdofs)
     :
-    MGLSolver(mgl),
+    MGLSolver(mgl, ess_vdofs),
     agg_vertexdof_(mgl.GetAggVertexDof()),
     agg_edgedof_(mgl.GetElemDof()),
     num_aggs_(agg_edgedof_.Rows()),
@@ -36,7 +36,7 @@ HybridSolver::HybridSolver(const MixedMatrix& mgl)
     AinvDMinvCT_(num_aggs_), Ainv_(num_aggs_), Minv_(num_aggs_),
     hybrid_elem_(num_aggs_), tmp_local_rhs_(num_aggs_),
     Minv_g_(num_aggs_), agg_weights_(num_aggs_, 1.0),
-    rescale_iter_(0)
+    rescale_iter_(0), ess_mul_dof_(-1)
 {
     SparseMatrix edgedof_multiplier = MakeEdgeDofMultiplier();
     SparseMatrix multiplier_edgedof = edgedof_multiplier.Transpose();
@@ -49,12 +49,17 @@ HybridSolver::HybridSolver(const MixedMatrix& mgl)
     ParMatrix edgedof_multiplier_d(comm_, std::move(edgedof_multiplier));
     ParMatrix multiplier_d_td_d = parlinalgcpp::RAP(edge_edge, edgedof_multiplier_d);
 
-//    assert(multiplier_d_td_d.GetOffd().RowSize(0)==0); // the right way is to eliminate on true system
     multiplier_d_td_ = MakeEntityTrueEntity(multiplier_d_td_d);
 
     MakeSharedEdgeDofMarker();
 
     SparseMatrix local_hybrid = AssembleHybridSystem(mgl, j_multiplier_edgedof);
+
+    if(myid_ == 0 && !use_w_ && ess_vdofs_.size() == 0)
+    {
+        ess_mul_dof_ = FindFirstNotShared(multiplier_d_td_d.GetOffd());
+        assert(ess_mul_dof_ != -1);
+    }
 
     InitSolver(std::move(local_hybrid));
 }
@@ -96,10 +101,10 @@ ParMatrix HybridSolver::ComputeScaledSystem(const ParMatrix& hybrid_d)
 
 void HybridSolver::InitSolver(SparseMatrix local_hybrid)
 {
-//    if (myid_ == 0 && !use_w_)
-//    {
-//        local_hybrid.EliminateRowCol(0);
-//    }
+    if (ess_mul_dof_!= -1)
+    {
+        local_hybrid.EliminateRowCol(ess_mul_dof_);
+    }
 
     ParMatrix hybrid_d = ParMatrix(comm_, std::move(local_hybrid));
 
@@ -217,6 +222,33 @@ SparseMatrix HybridSolver::AssembleHybridSystem(
 {
     const auto& M_el = mgl.GetElemM();
 
+    SparseMatrix D_elim = ess_vdofs_.size() > 0 ? mgl.LocalD() : SparseMatrix();
+    D_elim.EliminateRows(ess_vdofs_); //TODO: handle inhomogeneous BC
+    const SparseMatrix& D = ess_vdofs_.size() > 0 ? D_elim : mgl.LocalD();
+
+    SparseMatrix W_elim;
+    if (ess_vdofs_.size() > 0)
+    {
+        if (use_w_)
+        {
+            W_elim = mgl.LocalW();
+            for (auto& dof : ess_vdofs_)
+            {
+                W_elim.EliminateRowCol(dof); // TODO: eliminated entry set to -1
+            }
+        }
+        else
+        {
+            CooMatrix tmp(D.Rows());
+            for (auto& dof : ess_vdofs_)
+            {
+                tmp.Add(dof, dof, -1.0);
+            }
+            W_elim = tmp.ToSparse();
+        }
+    }
+    const SparseMatrix& W = ess_vdofs_.size() > 0 ? W_elim : mgl.LocalW();
+
     const int map_size = std::max(num_edge_dofs_, agg_vertexdof_.Cols());
     std::vector<int> edge_map(map_size, -1);
     std::vector<bool> edge_marker(num_edge_dofs_, true);
@@ -240,7 +272,7 @@ SparseMatrix HybridSolver::AssembleHybridSystem(
 
         assert(nlocal_vertexdof > 0);
 
-        SparseMatrix Dloc = mgl.LocalD().GetSubMatrix(local_vertexdof, local_edgedof,
+        SparseMatrix Dloc = D.GetSubMatrix(local_vertexdof, local_edgedof,
                                                       edge_map);
 
         SparseMatrix Cloc = MakeLocalC(agg, mgl.EdgeTrueEdge(), j_multiplier_edgedof,
@@ -277,16 +309,17 @@ SparseMatrix HybridSolver::AssembleHybridSystem(
         Dloc.Mult(MinvCT_i, DMinvCT);
         Dloc.Mult(MinvDT_i, Aloc);
 
-        if (use_w_)
+        if (use_w_ || ess_vdofs_.size() > 0)
         {
-            auto Wloc_tmp = mgl.LocalW().GetSubMatrix(local_vertexdof, local_vertexdof, edge_map);
+            auto Wloc_tmp = W.GetSubMatrix(local_vertexdof, local_vertexdof, edge_map);
             Wloc_tmp.ToDense(Wloc);
 
             Aloc -= Wloc;
         }
+//std::cout<<"HybridSolver: assembling elem "<<agg+1<<"/"<<num_aggs_<<", before Ainv\n";
 
         Aloc.Invert(Ainv_i);
-
+//std::cout<<"HybridSolver: assembling elem "<<agg+1<<"/"<<num_aggs_<<", after Ainv\n";
         Ainv_i.Mult(DMinvCT, AinvDMinvCT_i);
 
         if (DMinvCT.Cols() > 0)
@@ -307,12 +340,18 @@ SparseMatrix HybridSolver::AssembleHybridSystem(
 
 void HybridSolver::Solve(const BlockVector& Rhs, BlockVector& Sol) const
 {
-    RHSTransform(Rhs, Hrhs_);
+    BlockVector Rhs_elim(Rhs);
+    for (auto& dof : ess_vdofs_)
+    {
+        Rhs_elim.GetBlock(1)[dof] = 0.0; // TODO: handle inhomogeneous boundary condition
+    }
 
-//    if (!use_w_ && myid_ == 0)
-//    {
-//        Hrhs_[0] = 0.0;
-//    }
+    RHSTransform(Rhs_elim, Hrhs_);
+
+    if (ess_mul_dof_ != -1)
+    {
+        Hrhs_[ess_mul_dof_] = 0.0;
+    }
 
     // assemble true right hand side
     multiplier_d_td_.MultAT(Hrhs_, trueHrhs_);
@@ -450,8 +489,7 @@ void HybridSolver::RecoverOriginalSolution(const VectorView& HybridSol,
         int nlocal_edgedof = local_edgedof.size();
         int nlocal_multiplier = local_multiplier.size();
 
-        // Initialize a vector which will store the local contribution of Hdiv
-        // and L2 space
+        // Local solution
         Vector& u_loc(tmp_local_rhs_[iAgg]);
         Vector& sigma_loc(Minv_g_[iAgg]);
 
@@ -467,7 +505,7 @@ void HybridSolver::RecoverOriginalSolution(const VectorView& HybridSol,
             AinvDMinvCT_[iAgg].Mult(mu_loc, tmp);
             u_loc -= tmp;
 
-            // Compute sigma = Minv(g - D^T u - C^T mu)
+            // Compute sigma = M^{-1} (g - D^T u - C^T mu)
             tmp.SetSize(nlocal_edgedof);
             MinvDT_[iAgg].Mult(u_loc, tmp);
             sigma_loc -= tmp;

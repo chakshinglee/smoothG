@@ -59,7 +59,7 @@ MixedMatrix::MixedMatrix(const Graph& graph, int num_ess_vdof)
 
     M_elem_.resize(num_vertices);
 
-    for (int i = 0; i < num_vertices - num_ess_vdof_; ++i)
+    for (int i = 0; i < num_vertices; ++i)
     {
         std::vector<int> edge_dofs = elem_dof_.GetIndices(i);
 
@@ -74,10 +74,10 @@ MixedMatrix::MixedMatrix(const Graph& graph, int num_ess_vdof)
         }
     }
 
-    for (int i = num_vertices - num_ess_vdof_; i < num_vertices; ++i)
-    {
-        M_elem_[i].SetSize(elem_dof_.RowSize(i), 0.0);
-    }
+//    for (int i = num_vertices - num_ess_vdof_; i < num_vertices; ++i)
+//    {
+//        M_elem_[i].SetSize(elem_dof_.RowSize(i), 0.0);
+//    }
 
 
     Init();

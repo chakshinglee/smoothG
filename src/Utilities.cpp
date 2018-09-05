@@ -1037,5 +1037,16 @@ SparseMatrix RescaleLog(SparseMatrix A)
     return std::move(A);
 }
 
+int FindFirstNotShared(const SparseMatrix& is_shared)
+{
+    for (int i = 0; i < is_shared.Rows(); ++i)
+    {
+        if (is_shared.RowSize(i) == 0)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
 
 } // namespace smoothg

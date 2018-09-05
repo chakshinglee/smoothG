@@ -422,6 +422,8 @@ T Sum(std::vector<T> container, T init)
 
 SparseMatrix RescaleLog(SparseMatrix A);
 
+int FindFirstNotShared(const SparseMatrix& is_shared);
+
 } //namespace smoothg
 
 #endif // __UTILITIES_HPP__
