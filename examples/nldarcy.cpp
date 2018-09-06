@@ -129,7 +129,7 @@ int main(int argc, char* argv[])
     arg_parser.Parse(num_pr, "-npr", "Number of parallel refinement");
     arg_parser.Parse(correlation_length, "-cl", "Correlation length");
     arg_parser.Parse(do_visualization, "-vis", "Visualize the solution or not");
-//num_levels = num_pr + 2;
+
     if (!arg_parser.IsGood())
     {
         ParPrint(myid, arg_parser.ShowHelp());
@@ -162,11 +162,8 @@ int main(int argc, char* argv[])
 
     SingleLevelSolver sls(upscale, 0, Picard);
     sls.SetPrintLevel(1);
-//    sls.Solve(rhs, sol_picard);
+    sls.Solve(rhs, sol_picard);
 
-    upscale.Solve(rhs, sol_picard);
-
-return 0;
     timer.Click();
 
     if (myid == 0)
@@ -299,10 +296,10 @@ void SingleLevelSolver::PicardStep(const BlockVector& rhs, BlockVector& x)
     Kappa(p_, kp_);
     up_.MakeSolver(level_, kp_);
 
-//    if (level_ < up_.NumLevels() - 2)
-        up_.SetMaxIter(max_num_iter_ * 20000);
+    if (level_ < up_.NumLevels() - 1)
+        up_.SetMaxIter(max_num_iter_ * 8);
 //    else
-//        up_.SetMaxIter(max_num_iter_ * 40);
+//        up_.SetMaxIter(max_num_iter_ * 2);
 
     up_.SolveLevel(level_, rhs, x);
     up_.ShowSolveInfo(level_);
@@ -390,13 +387,13 @@ Vector NonlinearEllipticHierarchy::DistributeTrueVector(
     return up_.GetMatrix(level).DistributeTrueVector(vec_tdof);
 }
 
-// Kappa(p) = exp(- \alpha p)
+// Kappa(p) = exp(\alpha p)
 void Kappa(const VectorView& p, std::vector<double>& kp)
 {
     assert(kp.size() == p.size());
     for (int i = 0; i < p.size(); i++)
     {
-        kp[i] = std::exp(3. * (p[i]));
+        kp[i] = std::exp(-.45 * (p[i]));
         assert(kp[i] > 0.0);
     }
 }

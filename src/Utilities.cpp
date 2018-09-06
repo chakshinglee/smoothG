@@ -596,7 +596,7 @@ SparseMatrix MakeProcAgg(int num_procs, int num_aggs_global)
                         num_procs, num_aggs_global);
 }
 
-SparseMatrix MakeAggVertex(const std::vector<int>& partition)
+SparseMatrix MakeVertexAgg(const std::vector<int>& partition)
 {
     assert(partition.size() > 0);
 
@@ -608,8 +608,12 @@ SparseMatrix MakeAggVertex(const std::vector<int>& partition)
 
     std::iota(std::begin(indptr), std::end(indptr), 0);
 
-    SparseMatrix vertex_agg(std::move(indptr), partition, std::move(data), num_vert, num_parts);
+    return SparseMatrix(std::move(indptr), partition, std::move(data), num_vert, num_parts);
+}
 
+SparseMatrix MakeAggVertex(const std::vector<int>& partition)
+{
+    SparseMatrix vertex_agg = MakeVertexAgg(partition);
     return vertex_agg.Transpose();
 }
 
@@ -723,20 +727,13 @@ SparseMatrix Add(double alpha, const SparseMatrix& A, double beta, const SparseM
     return coo.ToSparse();
 }
 
-void IsolatePreProcess(const SparseMatrix& wtable,
-                       const std::vector<int>& isolated_vertices,
-                       SparseMatrix& sub_table,
-                       std::vector<int>& sub_to_global)
+std::vector<int> SetComplement(const std::vector<int>& A, const std::vector<int>& B)
 {
-    sub_to_global.resize(0);
-    sub_to_global.reserve(wtable.Rows());
-    std::vector<int> full_indices(wtable.Rows());
-    std::iota(full_indices.begin(), full_indices.end(), 0);
-    std::set_difference(full_indices.begin(), full_indices.end(),
-                        isolated_vertices.begin(), isolated_vertices.end(),
-                        std::back_inserter(sub_to_global));
+    std::vector<int> out;
+    out.reserve(A.size());
 
-    sub_table = wtable.GetSubMatrix(sub_to_global, sub_to_global);
+    std::set_difference(A.begin(), A.end(), B.begin(), B.end(), std::back_inserter(out));
+    return out;
 }
 
 std::vector<int> PartitionAAT(const SparseMatrix& A, double coarsening_factor, double ubal,
@@ -767,22 +764,36 @@ std::vector<int> PartitionAAT(const SparseMatrix& A, const std::vector<double>& 
     }
     else
     {
-        SparseMatrix sub_AA_T;
-        std::vector<int> sub_verts;
-        IsolatePreProcess(AA_T, isolated_vertices, sub_AA_T, sub_verts);
+        std::vector<int> all_verts(AA_T.Rows());
+        std::iota(all_verts.begin(), all_verts.end(), 0);
+        std::vector<int> remained_verts = SetComplement(all_verts, isolated_vertices);
+        SparseMatrix sub_AA_T = AA_T.GetSubMatrix(remained_verts, remained_verts);
 
         auto sub_part = Partition(sub_AA_T, num_parts, ubal, contig, weighted);
 
         std::vector<int> partitioning(A.Rows());
         for (unsigned int i = 0; i < sub_part.size(); ++i)
         {
-            partitioning[sub_verts[i]] = sub_part[i];
+            partitioning[remained_verts[i]] = sub_part[i];
         }
 
         num_parts = *(std::max_element(sub_part.begin(), sub_part.end()));
-        for (auto vertex : isolated_vertices)
+
+        SparseMatrix iso_remain = AA_T.GetSubMatrix(isolated_vertices, remained_verts);
+        SparseMatrix sub_vert_agg = MakeVertexAgg(sub_part);
+        SparseMatrix iso_vert_agg = iso_remain.Mult(sub_vert_agg);
+        SparseMatrix agg_iso_vert = iso_vert_agg.Transpose();
+
+        for (int i = 0; i < agg_iso_vert.Rows(); ++i)
         {
-            partitioning[vertex] = ++num_parts;
+            if (agg_iso_vert.RowSize(i))
+            {
+                num_parts++;
+                for (auto& j : agg_iso_vert.GetIndices(i))
+                {
+                    partitioning[isolated_vertices[j]] = num_parts;
+                }
+            }
         }
 
         return partitioning;
@@ -906,6 +917,28 @@ bool IsDiag(const SparseMatrix& mat)
         for (int j = indptr[i]; j < indptr[i + 1]; ++j)
         {
             if (indices[j] != i)
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool IsDiag(const DenseMatrix& mat)
+{
+    const int rows = mat.Rows();
+    if (rows != mat.Cols())
+    {
+        return false;
+    }
+
+    for (int i = 0; i < rows; ++i)
+    {
+        for (int j = 0; j < rows; ++j)
+        {
+            if (j != i && mat(i, j) != 0.0)
             {
                 return false;
             }
@@ -1047,6 +1080,23 @@ int FindFirstNotShared(const SparseMatrix& is_shared)
         }
     }
     return -1;
+}
+
+std::vector<int> BooleanMult(const SparseMatrix& mat, const std::vector<int>& vec)
+{
+    std::vector<int> out(mat.Rows(), 0);
+    for (int i = 0; i < mat.Rows(); i++)
+    {
+        for (int j = mat.GetIndptr()[i]; j < mat.GetIndptr()[i + 1]; j++)
+        {
+            if (vec[mat.GetIndices()[j]])
+            {
+                out[i] = 1;
+                break;
+            }
+        }
+    }
+    return out;
 }
 
 } // namespace smoothg

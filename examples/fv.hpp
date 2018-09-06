@@ -240,23 +240,6 @@ void FiniteVolumeMassIntegrator::AssembleElementMatrix(
     elmat.Diag(mii.GetData(), ndof);
 }
 
-std::vector<int> BooleanMult(const SparseMatrix& mat, const std::vector<int>& vec)
-{
-    std::vector<int> out(mat.Rows(), 0);
-    for (int i = 0; i < mat.Rows(); i++)
-    {
-        for (int j = mat.GetIndptr()[i]; j < mat.GetIndptr()[i + 1]; j++)
-        {
-            if (vec[mat.GetIndices()[j]])
-            {
-                out[i] = 1;
-                break;
-            }
-        }
-    }
-    return out;
-}
-
 /**
    @brief A utility class for working with the SPE10 data set.
 
@@ -586,31 +569,23 @@ void DarcyProblem::BuildReservoirGraph()
 
     const int num_elems = mesh_e_v.Cols();
     const int num_faces = mesh_e_v.Rows();
-    const int num_ess_faces = edge_bdr_att.nnz() - Sum(free_faces, 0);
+    num_ess_vdof_ = Sum(free_faces, 0);
+    const int num_ess_faces = edge_bdr_att.nnz() - num_ess_vdof_;
 
-    SparseMatrix bdr_att_edge = edge_bdr_att.Transpose();
-    std::vector<int> ess_vdof_map(ess_v_attr_.size(), -1);
-    for (int i = 0; i < ess_v_attr_.size(); ++i)
-    {
-        if (bdr_att_edge.RowSize(i) && ess_v_attr_[i])
-        {
-            ess_vdof_map[i] = num_elems + num_ess_vdof_++;
-        }
-    }
+    ess_vdofs_.resize(num_ess_vdof_);
+    std::iota(ess_vdofs_.begin(), ess_vdofs_.end(), num_elems);
 
     CooMatrix v_e(num_elems + num_ess_vdof_, num_faces - num_ess_faces);
     CooMatrix edof_select(num_faces - num_ess_faces, num_faces);
     int edge_counter = 0;
+    int ess_vdof_counter = num_elems;
     for (int i = 0; i < num_faces; ++i)
     {
         if (edge_bdr_att.RowSize(i))
         {
-            assert(edge_bdr_att.RowSize(i) == 1);
-            int bdr_attr = edge_bdr_att.GetIndices(i)[0];
-            if (ess_v_attr_[bdr_attr])
+            if (free_faces[i])
             {
-                assert(ess_vdof_map[bdr_attr] != -1);
-                v_e.Add(ess_vdof_map[bdr_attr], edge_counter, 1.0);
+                v_e.Add(ess_vdof_counter++, edge_counter, 1.0);
             }
             else
             {
@@ -628,15 +603,13 @@ void DarcyProblem::BuildReservoirGraph()
         edge_counter++;
     }
     assert(edge_counter == num_faces - num_ess_faces);
+    assert(ess_vdof_counter == num_elems + num_ess_vdof_);
     vertex_edge_ = v_e.ToSparse();
 
     edge__mfem_dof_ = ParMatrix(comm_, edof_select.ToSparse());
     ParMatrix d__td = ParMatrixToParMatrix(*sigma_fes_->Dof_TrueDof_Matrix());
     ParMatrix edge__mfem_td = edge__mfem_dof_ * d__td;
     edge_trueedge_ = MakeEntityTrueEntity(edge__mfem_td * edge__mfem_td.Transpose());
-
-    ess_vdofs_.resize(num_ess_vdof_);
-    std::iota(ess_vdofs_.begin(), ess_vdofs_.end(), num_elems);
 }
 
 void DarcyProblem::InitGraph()

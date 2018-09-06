@@ -316,10 +316,9 @@ SparseMatrix HybridSolver::AssembleHybridSystem(
 
             Aloc -= Wloc;
         }
-//std::cout<<"HybridSolver: assembling elem "<<agg+1<<"/"<<num_aggs_<<", before Ainv\n";
 
         Aloc.Invert(Ainv_i);
-//std::cout<<"HybridSolver: assembling elem "<<agg+1<<"/"<<num_aggs_<<", after Ainv\n";
+
         Ainv_i.Mult(DMinvCT, AinvDMinvCT_i);
 
         if (DMinvCT.Cols() > 0)
@@ -340,6 +339,8 @@ SparseMatrix HybridSolver::AssembleHybridSystem(
 
 void HybridSolver::Solve(const BlockVector& Rhs, BlockVector& Sol) const
 {
+    Timer timer(Timer::Start::True);
+
     BlockVector Rhs_elim(Rhs);
     for (auto& dof : ess_vdofs_)
     {
@@ -362,13 +363,8 @@ void HybridSolver::Solve(const BlockVector& Rhs, BlockVector& Sol) const
     }
 
     // solve the parallel global hybridized system
-    Timer timer(Timer::Start::True);
-
     trueMu_ = 0.0;
     cg_.Mult(trueHrhs_, trueMu_);
-
-    timer.Click();
-    timing_ = timer.TotalTime();
 
     if (myid_ == 0 && print_level_ > 0)
     {
@@ -401,6 +397,9 @@ void HybridSolver::Solve(const BlockVector& Rhs, BlockVector& Sol) const
     // distribute true dofs to dofs and recover solution of the original system
     multiplier_d_td_.Mult(trueMu_, Mu_);
     RecoverOriginalSolution(Mu_, Sol);
+
+    timer.Click();
+    timing_ = timer.TotalTime();
 }
 
 void HybridSolver::RHSTransform(const BlockVector& OriginalRHS,
@@ -536,6 +535,13 @@ void HybridSolver::UpdateAggScaling(const std::vector<double>& agg_weight)
     std::copy(std::begin(agg_weight), std::end(agg_weight), std::begin(agg_weights_));
 
     CooMatrix hybrid_system(num_multiplier_dofs_);
+
+    int nnz = 0;
+    for (const auto& elem_mat : hybrid_elem_)
+    {
+        nnz += elem_mat.Rows() * elem_mat.Cols();
+    }
+    hybrid_system.Reserve(nnz);
 
     for (int i = 0; i < num_aggs_; ++i)
     {

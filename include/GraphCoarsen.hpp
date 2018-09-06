@@ -88,7 +88,7 @@ public:
     /** @brief Create the coarse mixed matrix
         @param mgl Fine level mixed matrix
     */
-    MixedMatrix Coarsen(const MixedMatrix& mgl) const;
+    MixedMatrix Coarsen(const MixedMatrix& mgl, int num_ess_vdof) const;
 
     /** @brief Interpolate a coarse vertex vector to the fine level
         @param coarse_vect vertex vector to interpolate
