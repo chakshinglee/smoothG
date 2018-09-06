@@ -272,7 +272,7 @@ public:
 
 private:
     void MakeVectors(int level);
-    void CoarsenEssVdofs(int level, int num_dofs);
+    void CoarsenEssVdofs(int level, const SparseMatrix& coarse_fine);
 
     std::vector<MixedMatrix> mgl_;
     std::vector<GraphCoarsen> coarsener_;

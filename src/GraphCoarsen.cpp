@@ -214,10 +214,12 @@ void GraphCoarsen::ComputeVertexTargets(const ParMatrix& M_ext_global,
         std::vector<int> vertex_dofs_ext = GetExtDofs(agg_ext_vdof_, agg);
 
         std::vector<int> vertex_dofs_local = agg_vertexdof_.GetIndices(agg);
+        std::vector<int> edge_dofs_local = agg_edgedof_.GetIndices(agg);
 
-        if (edge_dofs_ext.size() == 0)
+        if (edge_dofs_ext.size() == 0 || edge_dofs_local.size() == 0)
         {
-            vertex_targets_[agg] = DenseMatrix(1, 1, {1.0});
+            vertex_targets_[agg].SetSize(vertex_dofs_local.size(), 1, 1.0);
+
             continue;
         }
 
@@ -1195,7 +1197,8 @@ SparseMatrix GraphCoarsen::BuildCoarseD() const
 std::vector<DenseMatrix> GraphCoarsen::BuildElemM(const MixedMatrix& mgl,
                                                   const SparseMatrix& agg_cdof_edge) const
 {
-    SparseMatrix agg_elem = agg_edgedof_.Mult(mgl.GetElemDof().Transpose());
+    const SparseMatrix& agg_elem = gt_.agg_vertex_local_;
+//    SparseMatrix agg_elem = agg_edgedof_.Mult(mgl.GetElemDof().Transpose());
     int num_aggs = gt_.NumAggs();
 
     std::vector<DenseMatrix> M_elem(num_aggs);
@@ -1326,7 +1329,7 @@ ParMatrix GraphCoarsen::MakeExtPermutation(const ParMatrix& parmat) const
     return ParMatrix(comm, ext_starts, mat_starts, std::move(perm_diag), std::move(perm_offd), colmap);
 }
 
-MixedMatrix GraphCoarsen::Coarsen(const MixedMatrix& mgl) const
+MixedMatrix GraphCoarsen::Coarsen(const MixedMatrix& mgl, int num_ess_vdof) const
 {
     SparseMatrix agg_cdof_edge = BuildAggCDofEdge();
     auto M_elem = BuildElemM(mgl, agg_cdof_edge);
@@ -1361,7 +1364,7 @@ MixedMatrix GraphCoarsen::Coarsen(const MixedMatrix& mgl) const
     mm.edge_edof = 1.0;
     mm.constant_vect_ = P_vertex_.MultAT(mgl.constant_vect_);
 
-    mm.num_ess_vdof_ = mgl.num_ess_vdof_;
+    mm.num_ess_vdof_ = num_ess_vdof;
 
     gt_ = GraphTopology();
     agg_vertexdof_ = SparseMatrix();

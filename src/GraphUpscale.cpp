@@ -47,7 +47,7 @@ GraphUpscale::GraphUpscale(const Graph& graph, const UpscaleParams& params)
 
     for (int level = 1; level < params.max_levels - 1; ++level)
     {
-        CoarsenEssVdofs(level, gts.back().NumAggs());
+        CoarsenEssVdofs(level, gts.back().agg_vertex_local_);
         gts.emplace_back(gts.back(), params.coarsen_factor, ess_vdofs_[level]);
     }
 
@@ -85,10 +85,12 @@ GraphUpscale::GraphUpscale(const Graph& graph, const UpscaleParams& params)
 
         coarsener_[level - 1] = GraphCoarsen(std::move(gt_i), mgl_[level - 1],
                                              num_evects_i, spect_tol_i);
-        mgl_[level] = MixedMatrix(coarsener_[level - 1].Coarsen(mgl_[level - 1]));
+
+        CoarsenEssVdofs(level, coarsener_[level - 1].Pvertex().Transpose());
+
+        mgl_[level] = coarsener_[level - 1].Coarsen(mgl_[level - 1], ess_vdofs_[level].size());
         mgl_[level].AssembleM();
 
-        CoarsenEssVdofs(level, mgl_[level].LocalD().Rows());
         auto tmp = proj_pw1_[level - 1].Mult(coarsener_[level - 1].Pvertex());
         proj_pw1_[level] = Q_pw1.Mult(tmp);
 
@@ -129,7 +131,7 @@ GraphUpscale::GraphUpscale(const Graph& graph,
 
     for (int level = 1; level < params.max_levels - 1; ++level)
     {
-        CoarsenEssVdofs(level, gts.back().NumAggs());
+        CoarsenEssVdofs(level, gts.back().agg_vertex_local_);
         gts.emplace_back(gts.back(), params.coarsen_factor, ess_vdofs_[level]);
     }
 
@@ -168,10 +170,12 @@ GraphUpscale::GraphUpscale(const Graph& graph,
 
         coarsener_[level - 1] = GraphCoarsen(std::move(gt_i), mgl_[level - 1],
                                              num_evects_i, spect_tol_i);
-        mgl_[level] = MixedMatrix(coarsener_[level - 1].Coarsen(mgl_[level - 1]));
+
+        CoarsenEssVdofs(level, coarsener_[level - 1].Pvertex().Transpose());
+
+        mgl_[level] = coarsener_[level - 1].Coarsen(mgl_[level - 1], ess_vdofs_[level].size());
         mgl_[level].AssembleM();
 
-        CoarsenEssVdofs(level, mgl_[level].LocalD().Rows());
         auto tmp = proj_pw1_[level - 1].Mult(coarsener_[level - 1].Pvertex());
         proj_pw1_[level] = Q_pw1.Mult(tmp);
 
@@ -189,11 +193,11 @@ void GraphUpscale::MakeSolver(int level)
 {
     auto& mm = GetMatrix(level);
 
-//    if (level == 0)
-//    {
-//        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
-//    }
-//    else
+    if (level == 0)
+    {
+        solver_[level] = make_unique<SPDSolver>(mm, ess_vdofs_[level]);
+    }
+    else
         if (hybridization_)
     {
         solver_[level] = make_unique<HybridSolver>(mm, ess_vdofs_[level]);
@@ -208,12 +212,12 @@ void GraphUpscale::MakeSolver(int level, const std::vector<double>& agg_weights)
 {
     auto& mm = GetMatrix(level);
 
-//    if (level == 0)
-//    {
-//        mm.AssembleM(agg_weights);
-//        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
-//    }
-//    else
+    if (level == 0)
+    {
+        mm.AssembleM(agg_weights);
+        solver_[level] = make_unique<SPDSolver>(mm, ess_vdofs_[level]);
+    }
+    else
         if (hybridization_)
     {
         if (!solver_[level])
@@ -974,12 +978,27 @@ void GraphUpscale::MakeVectors(int level)
     size_to_level_[rhs_[level].GetBlock(1).size()] = level;
 }
 
-void GraphUpscale::CoarsenEssVdofs(int level, int num_dofs)
+void GraphUpscale::CoarsenEssVdofs(int level, const SparseMatrix& coarse_fine)
 {
     assert(level > 0);
-    ess_vdofs_[level].resize(ess_vdofs_[level - 1].size());
-    std::iota(ess_vdofs_[level].begin(), ess_vdofs_[level].end(),
-              num_dofs - ess_vdofs_[level - 1].size());
+    std::vector<int> fine_marker(coarse_fine.Cols(), 0);
+    for (unsigned int i = 0; i < ess_vdofs_[level - 1].size(); ++i)
+    {
+        fine_marker[ess_vdofs_[level - 1][i]] = 1;
+    }
+
+    std::vector<int> coarse_marker = BooleanMult(coarse_fine, fine_marker);
+
+    ess_vdofs_[level].resize(0);
+    ess_vdofs_[level].reserve(Sum(coarse_marker, 0));
+    for (unsigned int i = 0; i < coarse_marker.size(); ++i)
+    {
+        if (coarse_marker[i])
+        {
+            ess_vdofs_[level].push_back(i);
+        }
+    }
+
 }
 
 void GraphUpscale::Project_PW_One(int level, const VectorView& x, VectorView& y) const

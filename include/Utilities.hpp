@@ -280,6 +280,9 @@ struct MpiSession
     int myid_;
 };
 
+/// @return set of elements in set A but not in set B
+std::vector<int> SetComplement(const std::vector<int>& A, const std::vector<int>& B);
+
 /** @brief Partitions a graph with adjacency matrix A * A^T
 
     @param A vertex to edge relation of the graph to partition
@@ -378,6 +381,9 @@ T GetSubVector(const T& global_vect, const std::vector<int>& map)
 /// Check if sparse matrix is diagonal
 bool IsDiag(const SparseMatrix& mat);
 
+/// Check if dense matrix is diagonal
+bool IsDiag(const DenseMatrix& mat);
+
 /// Extract dense submatrix
 void GetSubMatrix(const SparseMatrix& mat, const std::vector<int>& rows,
                   const std::vector<int>& cols, std::vector<int>& col_map,
@@ -423,6 +429,8 @@ T Sum(std::vector<T> container, T init)
 SparseMatrix RescaleLog(SparseMatrix A);
 
 int FindFirstNotShared(const SparseMatrix& is_shared);
+
+std::vector<int> BooleanMult(const SparseMatrix& mat, const std::vector<int>& vec);
 
 } //namespace smoothg
 
