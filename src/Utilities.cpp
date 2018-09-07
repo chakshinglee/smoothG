@@ -757,9 +757,9 @@ std::vector<int> PartitionAAT(const SparseMatrix& A, const std::vector<double>& 
     SparseMatrix A_T = A.Transpose();
     SparseMatrix AA_T = RescaleLog(Mult(A, weight_inv, A_T));
 
-    int num_parts = std::max(1.0, (A.Rows() / coarsening_factor) + 0.5);
     if (isolated_vertices.size() == 0)
     {
+        int num_parts = std::max(1.0, (A.Rows() / coarsening_factor) + 0.5);
         return Partition(AA_T, num_parts, ubal, contig, weighted);
     }
     else
@@ -769,6 +769,7 @@ std::vector<int> PartitionAAT(const SparseMatrix& A, const std::vector<double>& 
         std::vector<int> remained_verts = SetComplement(all_verts, isolated_vertices);
         SparseMatrix sub_AA_T = AA_T.GetSubMatrix(remained_verts, remained_verts);
 
+        int num_parts = std::max(1.0, (sub_AA_T.Rows() / coarsening_factor) + 0.5);
         auto sub_part = Partition(sub_AA_T, num_parts, ubal, contig, weighted);
 
         std::vector<int> partitioning(A.Rows());

@@ -309,7 +309,9 @@ void MixedMatrix::AssembleM(const std::vector<double>& agg_weight)
     }
 
     M_coo.Reserve(nnz);
-
+    int myid_;
+//    MPI_Comm_rank(MPI_COMM_WORLD, &myid_);
+//Timer timer(Timer::Start::True);
     for (int i = 0; i < num_aggs; ++i)
     {
         double scale = 1.0 / agg_weight[i];
@@ -319,7 +321,11 @@ void MixedMatrix::AssembleM(const std::vector<double>& agg_weight)
     }
 
     M_coo.EliminateZeros(1e-15);
+//    timer.Click();
+//    if (myid_==0)std::cout<<"coo built in "<<timer.TotalTime()<<"\n";
     M_local_ = M_coo.ToSparse();
+//    timer.Click();
+//    if (myid_==0)std::cout<<"sparse built in "<<timer.TotalTime()<<"\n";
     ParMatrix M_d(edge_true_edge_.GetComm(), edge_true_edge_.GetRowStarts(), M_local_);
     M_global_ = parlinalgcpp::RAP(M_d, edge_true_edge_);
 }

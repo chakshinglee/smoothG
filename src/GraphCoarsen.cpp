@@ -211,9 +211,10 @@ void GraphCoarsen::ComputeVertexTargets(const ParMatrix& M_ext_global,
         std::vector<int> vertex_dofs_local = agg_vertexdof_.GetIndices(agg);
         std::vector<int> edge_dofs_local = agg_edgedof_.GetIndices(agg);
 
-        if (edge_dofs_ext.size() == 0 || edge_dofs_local.size() == 0)
+        if (edge_dofs_ext.size() == 0)
         {
-            vertex_targets_[agg].SetSize(vertex_dofs_local.size(), 1, 1.0);
+            int num_vdofs = vertex_dofs_local.size();
+            vertex_targets_[agg].SetSize(num_vdofs, 1, 1.0 / std::sqrt(num_vdofs));
 
             continue;
         }
@@ -223,7 +224,7 @@ void GraphCoarsen::ComputeVertexTargets(const ParMatrix& M_ext_global,
 
         eigs.BlockCompute(M_sub, D_sub, evects);
 
-        if (evects.Cols() > 1)
+        if (evects.Cols() > 1 && edge_dofs_local.size() > 0)
         {
             SparseSolver M_inv(std::move(M_sub));
 
@@ -234,12 +235,14 @@ void GraphCoarsen::ComputeVertexTargets(const ParMatrix& M_ext_global,
         DenseMatrix evects_restricted = RestrictLocal(evects, col_marker_,
                 vertex_dofs_ext, vertex_dofs_local);
 
+        int max_evects_local = edge_dofs_local.size() > 0 ? max_evects_ : 1;
+
         VectorView first_vect = evects_restricted.GetColView(0);
         if (first_vect[0] < 0.0)
         {
             first_vect *= -1.0;
         }
-        vertex_targets_[agg] = Orthogonalize(evects_restricted, first_vect, 1, max_evects_);
+        vertex_targets_[agg] = Orthogonalize(evects_restricted, first_vect, 1, max_evects_local);
     }
 }
 
@@ -426,7 +429,6 @@ void GraphCoarsen::ComputeEdgeTargets(const MixedMatrix& mgl,
         SparseMatrix D_local = shared ? CombineD(face_D, num_face_edges) : std::move(face_D[0]);
         Vector constant_local = shared ? CombineConstant(face_constant) : std::move(face_constant[0]);
 
-
         GraphEdgeSolver solver(std::move(M_local), std::move(D_local));
         Vector one_neg_one = MakeOneNegOne(constant_local, split);
 
@@ -438,7 +440,19 @@ void GraphCoarsen::ComputeEdgeTargets(const MixedMatrix& mgl,
         Vector pv_sol = solver.Mult(one_neg_one);
         VectorView pv_sigma(pv_sol.begin(), num_face_edges);
 
-        edge_targets_[face] = Orthogonalize(collected_sigma, pv_sigma, 0, max_evects_);
+        int max_evects_local = max_evects_;
+        for (auto& agg : gt_.face_agg_local_.GetIndices(face))
+        {
+            if (agg_edgedof_.RowSize(agg) == 0)
+            {
+
+
+                max_evects_local = 1;
+                break;
+            }
+        }
+
+        edge_targets_[face] = Orthogonalize(collected_sigma, pv_sigma, 0, max_evects_local);
     }
 
     sec_face.Broadcast(edge_targets_);

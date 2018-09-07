@@ -543,14 +543,21 @@ void HybridSolver::UpdateAggScaling(const std::vector<double>& agg_weight)
     }
     hybrid_system.Reserve(nnz);
 
+//    Timer timer(Timer::Start::True);
     for (int i = 0; i < num_aggs_; ++i)
     {
         std::vector<int> local_multipliers = agg_multiplier_.GetIndices(i);
 
         hybrid_system.Add(local_multipliers, agg_weight[i], hybrid_elem_[i]);
     }
+//    hybrid_system.EliminateZeros(1e-9);
+//timer.Click();
+//if (myid_==0)std::cout<<"coo built in "<<timer.TotalTime()<<"\n";
+auto test = hybrid_system.ToSparse();
+//timer.Click();
+//if (myid_==0)std::cout<<"sparse built in "<<timer.TotalTime()<<"\n";
 
-    InitSolver(hybrid_system.ToSparse());
+    InitSolver(test);
 }
 
 void HybridSolver::SetPrintLevel(int print_level)
