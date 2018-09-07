@@ -222,15 +222,16 @@ void GraphCoarsen::ComputeVertexTargets(const ParMatrix& M_ext_global,
         SparseMatrix M_sub = M_ext.GetSubMatrix(edge_dofs_ext, edge_dofs_ext, col_marker_);
         SparseMatrix D_sub = D_ext.GetSubMatrix(vertex_dofs_ext, edge_dofs_ext, col_marker_);
 
-        eigs.BlockCompute(M_sub, D_sub, evects);
+        double smallest = eigs.BlockCompute(M_sub, D_sub, evects);
+        assert(fabs(smallest) < 1e-8);
 
-        if (evects.Cols() > 1 && edge_dofs_local.size() > 0)
-        {
-            SparseSolver M_inv(std::move(M_sub));
+//        if (evects.Cols() > 1 && edge_dofs_local.size() > 0)
+//        {
+//            SparseSolver M_inv(std::move(M_sub));
 
-            OffsetMultAT(D_sub, evects, DT_evect, 1);
-            OffsetMult(M_inv, DT_evect, agg_ext_sigma_[agg], 0);
-        }
+//            OffsetMultAT(D_sub, evects, DT_evect, 1);
+//            OffsetMult(M_inv, DT_evect, agg_ext_sigma_[agg], 0);
+//        }
 
         DenseMatrix evects_restricted = RestrictLocal(evects, col_marker_,
                 vertex_dofs_ext, vertex_dofs_local);
@@ -445,8 +446,6 @@ void GraphCoarsen::ComputeEdgeTargets(const MixedMatrix& mgl,
         {
             if (agg_edgedof_.RowSize(agg) == 0)
             {
-
-
                 max_evects_local = 1;
                 break;
             }
@@ -692,7 +691,7 @@ int GraphCoarsen::GetSplit(int face) const
     assert(neighbors.size() >= 1);
     int agg = neighbors[0];
 
-    return gt_.agg_vertex_local_.RowSize(agg);
+    return agg_vertexdof_.RowSize(agg);
 }
 
 void GraphCoarsen::BuildFaceCoarseDof()

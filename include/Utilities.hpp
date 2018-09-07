@@ -432,6 +432,21 @@ int FindFirstNotShared(const SparseMatrix& is_shared);
 
 std::vector<int> BooleanMult(const SparseMatrix& mat, const std::vector<int>& vec);
 
+/// Append b to a
+template<typename T>
+void Append(std::vector<T>& a, const std::vector<T>& b)
+{
+    a.insert(a.end(), b.begin(), b.end());
+}
+
+template<typename T>
+void Unique(std::vector<T>& v)
+{
+    std::sort(v.begin(), v.end());
+    auto last = std::unique(v.begin(), v.end());
+    v.erase(last, v.end());
+}
+
 } //namespace smoothg
 
 #endif // __UTILITIES_HPP__

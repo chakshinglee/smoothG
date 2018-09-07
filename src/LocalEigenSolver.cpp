@@ -345,7 +345,7 @@ public:
     {
         rhs_ = 0.0;
 
-        SparseMatrix W(std::vector<double>(D.Rows(), -shift));
+        SparseMatrix W(std::vector<double>(D.Rows(), shift));
 
         A_.SetBlock(0, 0, std::move(M));
         A_.SetBlock(0, 1, D.Transpose());
@@ -561,11 +561,11 @@ void LocalEigenSolver::SparseBlockCompute(SparseMatrix M, SparseMatrix D,
     int max_num_evects = (max_num_evects_ == -1 ) ? n - 1 : std::min(n - 1, max_num_evects_);
     int ncv = ComputeNCV(n, max_num_evects, num_arnoldi_vectors_);
 
-    BlockAdapter block_adapter(std::move(M), std::move(D), -shift_);
+    BlockAdapter block_adapter(std::move(M), std::move(D), shift_);
 
     ARSymStdEig<double, BlockAdapter>
     eigprob(n, max_num_evects, &block_adapter, &BlockAdapter::MultOP,
-            -shift_, "LM", ncv, tolerance_, max_iterations_);
+            shift_, "LM", ncv, tolerance_, max_iterations_);
     auto data_ptr = EigenPairsSetSizeAndData(n, max_num_evects, evals, evects);
     int num_converged = eigprob.EigenValVectors(data_ptr[0], data_ptr[1]);
 
