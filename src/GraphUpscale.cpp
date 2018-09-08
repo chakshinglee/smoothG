@@ -195,7 +195,7 @@ void GraphUpscale::MakeSolver(int level)
 
     if (level == 0)
     {
-        solver_[level] = make_unique<SPDSolver>(mm, ess_vdofs_[level]);
+        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
     }
     else
         if (hybridization_)
@@ -215,7 +215,7 @@ void GraphUpscale::MakeSolver(int level, const std::vector<double>& agg_weights)
     if (level == 0)
     {
         mm.AssembleM(agg_weights);
-        solver_[level] = make_unique<SPDSolver>(mm, ess_vdofs_[level]);
+        solver_[level] = make_unique<MinresBlockSolver>(mm, ess_vdofs_[level]);
     }
     else
         if (hybridization_)

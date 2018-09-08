@@ -736,6 +736,19 @@ std::vector<int> SetComplement(const std::vector<int>& A, const std::vector<int>
     return out;
 }
 
+void DepthFirstSearch(const SparseMatrix& adj, int vertex, std::vector<bool>& neighbor_marker)
+{
+    neighbor_marker[vertex] = true;
+    for (auto& neighbor : adj.GetIndices(vertex))
+    {
+        if (!neighbor_marker[neighbor])
+        {
+            DepthFirstSearch(adj, neighbor, neighbor_marker);
+        }
+    }
+
+}
+
 std::vector<int> PartitionAAT(const SparseMatrix& A, double coarsening_factor, double ubal,
                               bool contig, const std::vector<int>& isolated_vertices)
 {
@@ -757,9 +770,9 @@ std::vector<int> PartitionAAT(const SparseMatrix& A, const std::vector<double>& 
     SparseMatrix A_T = A.Transpose();
     SparseMatrix AA_T = RescaleLog(Mult(A, weight_inv, A_T));
 
-    int num_parts = std::max(1.0, (A.Rows() / coarsening_factor) + 0.5);
     if (isolated_vertices.size() == 0)
     {
+        int num_parts = std::max(1.0, (A.Rows() / coarsening_factor) + 0.5);
         return Partition(AA_T, num_parts, ubal, contig, weighted);
     }
     else
@@ -769,6 +782,7 @@ std::vector<int> PartitionAAT(const SparseMatrix& A, const std::vector<double>& 
         std::vector<int> remained_verts = SetComplement(all_verts, isolated_vertices);
         SparseMatrix sub_AA_T = AA_T.GetSubMatrix(remained_verts, remained_verts);
 
+        int num_parts = std::max(1.0, (sub_AA_T.Rows() / coarsening_factor) + 0.5);
         auto sub_part = Partition(sub_AA_T, num_parts, ubal, contig, weighted);
 
         std::vector<int> partitioning(A.Rows());
@@ -777,21 +791,68 @@ std::vector<int> PartitionAAT(const SparseMatrix& A, const std::vector<double>& 
             partitioning[remained_verts[i]] = sub_part[i];
         }
 
-        num_parts = *(std::max_element(sub_part.begin(), sub_part.end()));
+        // Try to group isolated vertices based on aggregates of the remained vertices,
+        // and if the vertices that they are connected to are neighbors of each other
 
         SparseMatrix iso_remain = AA_T.GetSubMatrix(isolated_vertices, remained_verts);
         SparseMatrix sub_vert_agg = MakeVertexAgg(sub_part);
         SparseMatrix iso_vert_agg = iso_remain.Mult(sub_vert_agg);
         SparseMatrix agg_iso_vert = iso_vert_agg.Transpose();
 
+        std::vector<bool> is_not_marked(isolated_vertices.size(), true);
+
+        num_parts = *(std::max_element(sub_part.begin(), sub_part.end()));
+
         for (int i = 0; i < agg_iso_vert.Rows(); ++i)
         {
             if (agg_iso_vert.RowSize(i))
             {
-                num_parts++;
-                for (auto& j : agg_iso_vert.GetIndices(i))
+                std::vector<int> local_iso_vert = agg_iso_vert.GetIndices(i);
+
+                std::vector<int> iso_neighbors;
+                for (auto& j : local_iso_vert)
                 {
-                    partitioning[isolated_vertices[j]] = num_parts;
+                    // TODO: handle cases with more than one neighbor;
+                    assert(AA_T.RowSize(isolated_vertices[j]) == 2);
+
+                    for (auto& neighbor : AA_T.GetIndices(isolated_vertices[j]))
+                    {
+                        if (neighbor != isolated_vertices[j])
+                        {
+                            iso_neighbors.push_back(neighbor);
+                        }
+                    }
+                }
+                assert(iso_neighbors.size() == local_iso_vert.size());
+
+                // Extract submatrix with possibly repeated indices
+                CooMatrix select_coo(AA_T.Rows(), iso_neighbors.size());
+                for (unsigned int j = 0; j < iso_neighbors.size(); ++j)
+                {
+                    select_coo.Add(iso_neighbors[j], j, 1.0);
+                }
+                SparseMatrix select = select_coo.ToSparse();
+                SparseMatrix adj_iso = Mult(select.Transpose(), AA_T, select);
+
+                for (unsigned int j = 0; j < local_iso_vert.size(); ++j)
+                {
+                    if (is_not_marked[local_iso_vert[j]])
+                    {
+                        num_parts++;
+                        std::vector<bool> neighbors_marker_j(adj_iso.Rows(), false);
+                        DepthFirstSearch(adj_iso, j, neighbors_marker_j);
+
+                        for (unsigned int k = 0; k < neighbors_marker_j.size(); ++k)
+                        {
+                            if (neighbors_marker_j[k])
+                            {
+                                int neighbor = local_iso_vert[k];
+                                assert(is_not_marked[neighbor]);
+                                partitioning[isolated_vertices[neighbor]] = num_parts;
+                                is_not_marked[neighbor] = false;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1063,7 +1124,7 @@ SparseMatrix RescaleLog(SparseMatrix A)
         {
             if (i != indices[j])
             {
-                data[j] = std::floor(std::log2(data[j] / weight_min)) + 1;
+                data[j] = std::floor(std::log2(data[j] / weight_min)) + 1.0;
             }
         }
     }

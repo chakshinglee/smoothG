@@ -117,8 +117,8 @@ protected:
     // default nonlinear solver options
     int print_level_ = 0;
     int max_num_iter_ = 50;
-    double rtol_ = 1e-6;
-    double atol_ = 1e-8;
+    double rtol_ = 1e-8;
+    double atol_ = 1e-10;
 
     int iter_;
     double timing_;

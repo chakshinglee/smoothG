@@ -152,6 +152,11 @@ int main(int argc, char* argv[])
     upscale.PrintInfo();
     upscale.ShowSetupTime();
 
+    if (myid == 0)
+    {
+        std::cout << "\n";
+    }
+
     BlockVector rhs(upscale.GetBlockVector(0));
     rhs.GetBlock(0) = 0.0;
     rhs.GetBlock(1) = fv_problem.GetVertexRHS();
@@ -170,7 +175,7 @@ int main(int argc, char* argv[])
     if (myid == 0)
     {
         std::cout << "Picard iteration took " << sls.GetNumIterations()
-                  << " iterations in " << timer.TotalTime() << " seconds.\n";
+                  << " iterations in " << timer.TotalTime() << " seconds.\n\n";
     }
 
     timer.Click();
@@ -297,13 +302,13 @@ void SingleLevelSolver::PicardStep(const BlockVector& rhs, BlockVector& x)
     Kappa(p_, kp_);
     up_.MakeSolver(level_, kp_);
 
-    if (level_ < up_.NumLevels() - 1)
-        up_.SetMaxIter(max_num_iter_ * 8);
+//    if (level_  == 0)
+//        up_.SetMaxIter(max_num_iter_ * 10);
 //    else
-//        up_.SetMaxIter(max_num_iter_ * 2);
+//        up_.SetMaxIter(2000);
 
     up_.SolveLevel(level_, rhs, x);
-    up_.ShowSolveInfo(level_);
+//    up_.ShowSolveInfo(level_);
 }
 
 void SingleLevelSolver::NewtonSolve(const BlockVector& rhs, BlockVector& x)
@@ -394,7 +399,7 @@ void Kappa(const VectorView& p, std::vector<double>& kp)
     assert(kp.size() == p.size());
     for (int i = 0; i < p.size(); i++)
     {
-        kp[i] = std::exp(-.45 * (p[i]));
+        kp[i] = std::exp(5. * (p[i]));
         assert(kp[i] > 0.0);
     }
 }
