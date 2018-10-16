@@ -301,7 +301,6 @@ void SingleLevelSolver::PicardSolve(const BlockVector& rhs, BlockVector& x)
 void SingleLevelSolver::PicardStep(const BlockVector& rhs, BlockVector& x)
 {
     up_.Project_PW_One(level_, x.GetBlock(1), p_);
-//if (level_>0 && myid_ ==0) {Vector p2(p_.begin(), 5); p2.Print();}
     Kappa(p_, kp_);
     up_.MakeSolver(level_, kp_);
 
