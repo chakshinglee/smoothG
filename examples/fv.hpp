@@ -1138,17 +1138,14 @@ void LognormalProblem::SetupMesh(int nDimensions, int num_ser_ref, int num_par_r
 {
     const int N = std::pow(2, num_ser_ref);
     unique_ptr<mfem::Mesh> mesh;
-//    if (nDimensions == 2)
-//    {
-//        mesh = make_unique<mfem::Mesh>(N, N, mfem::Element::QUADRILATERAL, 1);
-//    }
-//    else
-//    {
-//        mesh = make_unique<mfem::Mesh>(N, N, N, mfem::Element::HEXAHEDRON, 1);
-//    }
-
-    std::ifstream imesh("egg_model.mesh");
-    mesh = make_unique<mfem::Mesh>(imesh, 1, 1);
+    if (nDimensions == 2)
+    {
+        mesh = make_unique<mfem::Mesh>(N, N, mfem::Element::QUADRILATERAL, 1);
+    }
+    else
+    {
+        mesh = make_unique<mfem::Mesh>(N, N, N, mfem::Element::HEXAHEDRON, 1);
+    }
 
     pmesh_ = make_unique<mfem::ParMesh>(comm_, *mesh);
     for (int i = 0; i < 0; i++)

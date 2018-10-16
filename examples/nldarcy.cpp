@@ -143,6 +143,7 @@ int main(int argc, char* argv[])
 
 //    std::vector<int> ess_v_attr(dim == 2 ? 4 : 6, 1);
 //    SPE10Problem fv_problem("spe_perm.dat", dim, 5, slice, ess_v_attr, 15, 0);
+//    LognormalProblem fv_problem(dim, num_sr, num_pr, correlation_length, ess_v_attr);
 
     Graph graph = fv_problem.GetFVGraph(coarsening_factor, false);
 
