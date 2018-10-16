@@ -223,7 +223,10 @@ SparseMatrix HybridSolver::AssembleHybridSystem(
     const auto& M_el = mgl.GetElemM();
 
     SparseMatrix D_elim = ess_vdofs_.size() > 0 ? mgl.LocalD() : SparseMatrix();
-    D_elim.EliminateRows(ess_vdofs_); //TODO: handle inhomogeneous BC
+    for (auto& dof : ess_vdofs_)
+    {
+        D_elim.EliminateRow(dof); //TODO: handle inhomogeneous BC
+    }
     const SparseMatrix& D = ess_vdofs_.size() > 0 ? D_elim : mgl.LocalD();
 
     SparseMatrix W_elim;

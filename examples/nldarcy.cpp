@@ -138,10 +138,13 @@ int main(int argc, char* argv[])
     }
     ParPrint(myid, arg_parser.ShowOptions());
 
-    std::vector<int> ess_v_attr(dim == 2 ? 4: 3, 1);
-    LognormalProblem fv_problem(dim, num_sr, num_pr, correlation_length, ess_v_attr);
+    std::vector<int> ess_v_attr(dim == 2 ? 4 : 3, 1);
+    EggModel fv_problem(num_sr, num_pr, ess_v_attr);
+
+//    std::vector<int> ess_v_attr(dim == 2 ? 4 : 6, 1);
 //    SPE10Problem fv_problem("spe_perm.dat", dim, 5, slice, ess_v_attr, 15, 0);
-    Graph graph = fv_problem.GetFVGraph(coarsening_factor*coarsening_factor, false);
+
+    Graph graph = fv_problem.GetFVGraph(coarsening_factor, false);
 
     // Construct graph hierarchy
     GraphUpscale upscale(graph, fv_problem.GetLocalWeight(),

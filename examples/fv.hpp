@@ -250,6 +250,7 @@ class InversePermeabilityFunction
 public:
     enum SliceOrientation {NONE, XY, XZ, YZ};
     static void SetNumberCells(int Nx_, int Ny_, int Nz_);
+    static void SetReadRange(int max_Nx_, int max_Ny_, int max_Nz_);
     static void SetMeshSizes(double hx, double hy, double hz);
     static void Set2DSlice(SliceOrientation o, int npos );
     static void ReadPermeabilityFile(const std::string& fileName);
@@ -261,6 +262,9 @@ private:
     static int Nx;
     static int Ny;
     static int Nz;
+    static int max_Nx;
+    static int max_Ny;
+    static int max_Nz;
     static double hx;
     static double hy;
     static double hz;
@@ -275,6 +279,13 @@ void InversePermeabilityFunction::SetNumberCells(int Nx_, int Ny_, int Nz_)
     Nx = Nx_;
     Ny = Ny_;
     Nz = Nz_;
+}
+
+void InversePermeabilityFunction::SetReadRange(int max_Nx_, int max_Ny_, int max_Nz_)
+{
+    max_Nx = max_Nx_;
+    max_Ny = max_Ny_;
+    max_Nz = max_Nz_;
 }
 
 void InversePermeabilityFunction::SetMeshSizes(double hx_, double hy_,
@@ -316,18 +327,18 @@ void InversePermeabilityFunction::ReadPermeabilityFile(const std::string& fileNa
                     *ip = 1. / (*ip);
                     ip++;
                 }
-                for (int i = 0; i < 60 - Nx; i++)
+                for (int i = 0; i < max_Nx - Nx; i++)
                     permfile >> tmp; // skip unneeded part
             }
-            for (int j = 0; j < 60 - Ny; j++) //220
-                for (int i = 0; i < 60; i++)
+            for (int j = 0; j < max_Ny - Ny; j++)
+                for (int i = 0; i < max_Nx; i++)
                     permfile >> tmp;  // skip unneeded part
         }
 
         if (l < 2) // if not processing Kz, skip unneeded part
-            for (int k = 0; k < 7 - Nz; k++) //85
-                for (int j = 0; j < 60; j++) //220
-                    for (int i = 0; i < 60; i++)
+            for (int k = 0; k < max_Nz - Nz; k++)
+                for (int j = 0; j < max_Ny; j++)
+                    for (int i = 0; i < max_Nx; i++)
                         permfile >> tmp;
     }
 
@@ -419,6 +430,9 @@ void InversePermeabilityFunction::ClearMemory()
 int InversePermeabilityFunction::Nx(60);
 int InversePermeabilityFunction::Ny(220);
 int InversePermeabilityFunction::Nz(85);
+int InversePermeabilityFunction::max_Nx(60);
+int InversePermeabilityFunction::max_Ny(220);
+int InversePermeabilityFunction::max_Nz(85);
 double InversePermeabilityFunction::hx(20);
 double InversePermeabilityFunction::hy(10);
 double InversePermeabilityFunction::hz(2);
@@ -655,7 +669,7 @@ void DarcyProblem::ComputeGraphWeight()
     a.SpMat().GetDiag(a_diag);
 
     VectorView a_diag_view(a_diag.GetData(), a_diag.Size());
-    Vector weight_inv = edge__mfem_dof_.Mult(a_diag_view); //TODO: no diag
+    Vector weight_inv = edge__mfem_dof_.GetDiag().Mult(a_diag_view); //TODO: no diag
 
     weight_.resize(weight_inv.size());
     SparseMatrix e_v = vertex_edge_.Transpose();
@@ -1157,47 +1171,47 @@ void LognormalProblem::SetupCoeff(int nDimensions, double correlation_length, in
     double scalar_g = std::pow(4.0 * M_PI, ddim / 4.0) * std::pow(kappa, nu_parameter) *
             std::sqrt( std::tgamma(nu_parameter + ddim / 2.0) / tgamma(nu_parameter) );
 
-//    std::vector<int> ess_v_attr(ess_v_attr_.size(), 0);
+    std::vector<int> ess_v_attr(ess_v_attr_.size(), 0);
 
-//    mfem::L2_FECollection u_fec(0, pmesh_c_->SpaceDimension());
-//    mfem::ParFiniteElementSpace u_fes(pmesh_c_.get(), &u_fec);
+    mfem::L2_FECollection u_fec(0, pmesh_c_->SpaceDimension());
+    mfem::ParFiniteElementSpace u_fes(pmesh_c_.get(), &u_fec);
 
-//    SparseMatrix P = SparseIdentity(pmesh_c_->GetNE());
-//    for (int i = 0; i < more_ref; i++)
-//    {
-//        pmesh_c_->UniformRefinement();
-//        auto& P_l = (const mfem::SparseMatrix&)*u_fes.GetUpdateOperator();
-//        P = SparseToSparse(P_l).Mult(P);
-//    }
-//    SparseMatrix Proj = P.Transpose();
+    SparseMatrix P = SparseIdentity(pmesh_c_->GetNE());
+    for (int i = 0; i < more_ref; i++)
+    {
+        pmesh_c_->UniformRefinement();
+        auto& P_l = (const mfem::SparseMatrix&)*u_fes.GetUpdateOperator();
+        P = SparseToSparse(P_l).Mult(P);
+    }
+    SparseMatrix Proj = P.Transpose();
 
-//    auto PTP = Proj.Mult(P);
-//    Proj.InverseScaleRows(PTP.GetDiag());
+    auto PTP = Proj.Mult(P);
+    Proj.InverseScaleRows(PTP.GetDiag());
 
-//    DarcyProblem darcy_problem(*pmesh_, ess_v_attr);
-//    SparseMatrix W_block = SparseIdentity(pmesh_->GetNE());
-//    double cell_vol = pmesh_->GetElementVolume(0);
-//    W_block = cell_vol * kappa * kappa;
-//    MixedMatrix mgL(darcy_problem.GetFVGraph(50, false, std::move(W_block)), 0);
-//    mgL.AssembleM();
+    DarcyProblem darcy_problem(*pmesh_, ess_v_attr);
+    SparseMatrix W_block = SparseIdentity(pmesh_->GetNE());
+    double cell_vol = pmesh_->GetElementVolume(0);
+    W_block = cell_vol * kappa * kappa;
+    MixedMatrix mgL(darcy_problem.GetFVGraph(50, false, std::move(W_block)), 0);
+    mgL.AssembleM();
 
-//    NormalDistribution normal_dist(0.0, 1.0, 22 + myid_);
-//    Vector rhs(mgL.LocalD().Rows());
-////    assert(rhs.size() == 262144);
-//    for (int i = 0; i < rhs.size(); ++i)
-//    {
-////        normal_dist.Sample();
-////        normal_dist.Sample();
-//        rhs[i] = scalar_g * std::sqrt(cell_vol) * normal_dist.Sample();
-//    }
+    NormalDistribution normal_dist(0.0, 1.0, 22 + myid_);
+    Vector rhs(mgL.LocalD().Rows());
+//    assert(rhs.size() == 262144);
+    for (int i = 0; i < rhs.size(); ++i)
+    {
+//        normal_dist.Sample();
+//        normal_dist.Sample();
+        rhs[i] = scalar_g * std::sqrt(cell_vol) * normal_dist.Sample();
+    }
 
-//    SPDSolver solver(mgL);
-//    Vector sol = solver.Mult(rhs);
+    SPDSolver solver(mgL);
+    Vector sol = solver.Mult(rhs);
 
-//    for (auto& s : sol)
-//    {
-//        s = std::exp(s);
-//    }
+    for (auto& s : sol)
+    {
+        s = std::exp(s);
+    }
 
 //    std::ofstream ofs("coef.txt");
 //    sol.Print("", ofs);
@@ -1208,26 +1222,81 @@ void LognormalProblem::SetupCoeff(int nDimensions, double correlation_length, in
 //    Vector coef(coef_from_file.data(), coef_from_file.size());
 //    Vector sol = P.Mult(coef);
 
-//    for (int i = 0; i < coeff_gf_->Size(); ++i)
-//    {
-//        coeff_gf_->Elem(i) = sol[i];//std::exp(projected_sol[i]);
-//    }
-//    kinv_scalar_ = make_unique<mfem::GridFunctionCoefficient>(coeff_gf_.get());
+    for (int i = 0; i < coeff_gf_->Size(); ++i)
+    {
+        coeff_gf_->Elem(i) = sol[i];//std::exp(projected_sol[i]);
+    }
+    kinv_scalar_ = make_unique<mfem::GridFunctionCoefficient>(coeff_gf_.get());
 
-    // ======  egg model
+//    mfem::socketstream soc;
+//    VisSetup(soc, *coeff_gf_, 0., 0., "", 1);
+}
 
+class EggModel : public DarcyProblem
+{
+public:
+    EggModel(int num_ser_ref, int num_par_ref, const std::vector<int>& ess_e_attr);
+
+    ~EggModel() { }
+private:
+    void SetupMesh(int num_ser_ref, int num_par_ref);
+    void SetupCoeff();
+};
+
+EggModel::EggModel(int num_ser_ref, int num_par_ref, const std::vector<int>& ess_v_attr)
+    : DarcyProblem(MPI_COMM_WORLD, 3, ess_v_attr)
+{
+    SetupMesh(num_ser_ref, num_par_ref);
+    InitGraph();
+
+    SetupCoeff();
+    ComputeGraphWeight();
+
+    rhs_u_ = -1.0 * CellVolume();
+
+    for (int i = 0; i < num_ess_vdof_; ++i)
+    {
+        rhs_u_[rhs_u_.size()-1-i] = 0.0;
+    }
+    pmesh_.reset();
+    sigma_fec_.reset();
+    sigma_fes_.reset();
+    u_fec_.reset();
+    u_fes_.reset();
+    InversePermeabilityFunction::ClearMemory();
+}
+
+void EggModel::SetupMesh(int num_ser_ref, int num_par_ref)
+{
+    std::ifstream imesh("egg_model.mesh");
+    mfem::Mesh mesh(imesh, 1, 1);
+
+    for (int i = 0; i < num_ser_ref; i++)
+    {
+        mesh.UniformRefinement();
+    }
+
+    pmesh_ = make_unique<mfem::ParMesh>(comm_, mesh);
+    for (int i = 0; i < num_par_ref; i++)
+    {
+        pmesh_->UniformRefinement();
+    }
+}
+
+void EggModel::SetupCoeff()
+{
     using IPF = InversePermeabilityFunction;
     IPF::SetNumberCells(60, 60, 7);
+    IPF::SetReadRange(60, 60, 7);
     IPF::SetMeshSizes(8.0, 8.0, 4.0);
     IPF::ReadPermeabilityFile("egg_perm_27.txt", comm_);
-    kinv_vector_ = make_unique<mfem::VectorFunctionCoefficient>(nDimensions, IPF::InversePermeability);
+    kinv_vector_ = make_unique<mfem::VectorFunctionCoefficient>(
+                pmesh_->SpaceDimension(), IPF::InversePermeability);
 
+    // visualize coefficient norm
 //    kinv_scalar_ = make_unique<mfem::FunctionCoefficient>(IPF::InvNorm2);
 //    coeff_gf_->ProjectCoefficient(*kinv_scalar_);
-
-    // ======= end egg model
-
-    mfem::socketstream soc;
+//    mfem::socketstream soc;
 //    VisSetup(soc, *coeff_gf_, 0., 0., "", 1);
 }
 
